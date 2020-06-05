@@ -8,7 +8,8 @@ from .utils import preprocess_data
 # TODO: Add early stopping, and also Minibatch GD as an option
 # TODO: Save training RMSE values
 # TODO: Add Incremental option
-# TODO: Add non-linearity function according to Simon Funk
+# TODO: Add non-linearity function with sigmoid according to Simon Funk
+# TODO: ALS optimization
 
 
 @nb.njit()
@@ -39,7 +40,7 @@ def _sgd(
         item_biases {numpy array} -- Item biases vector of shape (n_items, 1)
         n_epochs {int} -- Number of epochs to run
         lr {float} -- Learning rate alpha
-        reg {float} -- Regularization parameter lambda for L2 norm
+        reg {float} -- Regularization parameter lambda for Frobenius norm
         verbose {int} -- Verbosity when fitting. 0 for nothing and 1 for printing epochs
 
     Returns:
@@ -141,9 +142,10 @@ def _predict(
 
 class SVD(BaseEstimator):
     """ 
-    Singular Value Decomposition by Simon Funk. Finds the thin matrices U and V such that U * V^T give a good approximation to the user-item 
-    ratings matrix based on rmse. SVD decomposes a matrix into matrices U, S, V^T where S is a diagonal matrix containing the singular values
-    however with this algorithm S will be mixed into U and V^T so we simply just end up with 2 matrices instead of 3.
+    Singular Value Decomposition by Simon Funk. Finds the thin matrices U and V such that U * V^T give a good low rank approximation to the user-item 
+    ratings matrix A based on RMSE. SVD decomposes a matrix into matrices U, S, V^T where S is a diagonal matrix containing the singular values
+    however with this algorithm S will be mixed into U and V^T so we simply just end up with 2 matrices instead of 3. This algorithm
+    also only uses the observed user item ratings and does not focus on the priors.
 
     Arguments:
         n_factors {int} -- The number of latent factors in matrices P and U (default: {100})
@@ -166,6 +168,7 @@ class SVD(BaseEstimator):
         item_biases {numpy array} -- Item bias vector of shape (n_items, i)
         _user_id_map {dict} -- Mapping of user ids to assigned integer ids
         _item_id_map {dict} -- Mapping of item ids to assigned integer ids
+        _predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
     """
 
     def __init__(
@@ -248,7 +251,6 @@ class SVD(BaseEstimator):
 
         Returns:
             predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
-            predictions_possible [np.ndarray] -- Vector of whether both given user and item were contained in the data that the model was fitted on
         """
         # Keep only required columns in given order
         X = X.loc[:, ["u_id", "i_id"]]
@@ -258,7 +260,7 @@ class SVD(BaseEstimator):
         X.loc[:, "i_id"] = X["i_id"].map(self._item_id_map)
 
         # Replace missing mappings with -1
-        X.fillna(-1, inplace = True)
+        X.fillna(-1, inplace=True)
 
         # Get predictions
         predictions, predictions_possible = _predict(
@@ -272,4 +274,6 @@ class SVD(BaseEstimator):
             item_biases=self.item_biases,
         )
 
-        return (predictions, predictions_possible)
+        self._predictions_possible = predictions_possible
+
+        return predictions
