@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 
-def preprocess_data(X: pd.DataFrame):
+def preprocess_data(X: pd.DataFrame) -> (np.ndarray, dict, dict):
     """Preprocesses ratings dataframe before fitting
 
     Arguments:

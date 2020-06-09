@@ -5,11 +5,12 @@ from sklearn.base import BaseEstimator
 from .utils import preprocess_data
 
 
-# TODO: Add early stopping, and also Minibatch GD as an option
+# TODO: Add Minibatch GD as an option
 # TODO: Save training RMSE values
 # TODO: Add Incremental option
 # TODO: Add non-linearity function with sigmoid according to Simon Funk
 # TODO: ALS optimization
+# TODO: change fit signature to match sklearn
 
 
 @nb.njit()
@@ -24,7 +25,7 @@ def _sgd(
     lr: float,
     reg: float,
     verbose: int,
-):
+) -> (np.ndarray, np.ndarray, np.ndarray, np.ndarray):
     """
     Performs stochastic gradient descent. Similar to https://github.com/gbolmier/funk-svd and https://github.com/NicolasHug/Surprise we iterate
     over each factor manually for a given user/item instead of indexing by a row such as user_feature[user] since it has shown to be much faster. 
@@ -95,12 +96,15 @@ def _predict(
     item_features: np.ndarray,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
-):
-    """[summary]
+) -> (list, list):
+    """ 
+    Calculate predicted ratings for each user-item pair.
 
     Arguments:
         X {np.ndarray} -- Matrix with columns representing (user_id, item_id)
         global_mean {float} -- Global mean of all ratings
+        min_rating {int} -- Lowest rating possible
+        max_rating {int} -- Highest rating possible
         user_features {np.ndarray} -- User features matrix U of shape (n_users, n_factors)
         item_features {np.ndarray} -- Item features matrix P of shape (n_items, n_factors)
         user_biases {np.ndarray} -- User biases vector of length n_users
@@ -243,7 +247,7 @@ class SVD(BaseEstimator):
 
         return self
 
-    def predict(self, X: pd.DataFrame):
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
         """Predict ratings for given users and items
 
         Arguments:
