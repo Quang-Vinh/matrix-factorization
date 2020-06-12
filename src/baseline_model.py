@@ -258,6 +258,11 @@ class BaselineModel(BaseEstimator):
         max_rating: int = 5,
         verbose=1,
     ):
+
+        # Check inputs
+        if method not in ("sgd", "als"):
+            raise Exception('Method param must be either "sgd" or "als"')
+
         self.method = method
         self.n_epochs = n_epochs
         self.reg = reg
@@ -347,5 +352,6 @@ class BaselineModel(BaseEstimator):
 
         return predictions
 
-    def update(self, X: np.ndarray):
+    def update_single_user(self, X: np.ndarray):
+
         return
