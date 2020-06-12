@@ -123,34 +123,38 @@ def _als(
     n_users = user_biases.shape[0]
     n_items = item_biases.shape[0]
 
+    # Get counts of all users and items
+    user_counts = np.zeros(n_users)
+    item_counts = np.zeros(n_items)
+    for i in range(X.shape[0]):
+        user, item = int(X[i, 0]), int(X[i, 1])
+        user_counts[user] += 1
+        item_counts[item] += 1
+
     # For each epoch optimize User biases, and then Item biases
     for epoch in range(n_epochs):
 
         # Update user bias parameters
         user_biases = np.zeros(n_users)
-        user_sizes = np.zeros(n_users)
 
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
             user, item, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
             user_biases[user] += rating - global_mean - item_biases[item]
-            user_sizes[user] += 1
 
         # Set user bias estimation
-        user_biases = user_biases / (reg + user_sizes)
+        user_biases = user_biases / (reg + user_counts)
 
         # Update item bias parameters
         item_biases = np.zeros(n_items)
-        item_sizes = np.zeros(n_items)
 
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
             user, item, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
             item_biases[item] += rating - global_mean - user_biases[user]
-            item_sizes[item] += 1
 
         # Set item bias estimation
-        item_biases = item_biases / (reg + item_sizes)
+        item_biases = item_biases / (reg + item_counts)
 
         # Calculate error and print
         if verbose == 1:
@@ -342,3 +346,6 @@ class BaselineModel(BaseEstimator):
         self._predictions_possible = predictions_possible
 
         return predictions
+
+    def update(self, X: np.ndarray):
+        return
