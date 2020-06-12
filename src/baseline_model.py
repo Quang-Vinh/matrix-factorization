@@ -225,6 +225,7 @@ class BaselineModel(BaseEstimator):
     with regularization.
 
     Arguments:
+        method: {str} -- Method to estimate parameters. Can be one of 'sgd' or 'als' (default: {'sgd'})
         n_epochs {int} -- Number of epochs to train for (default: {100})
         reg {float} -- Lambda parameter for L2 regularization (default: {0.2})
         lr {float} -- Learning rate for gradient optimization step (default: {0.005})
