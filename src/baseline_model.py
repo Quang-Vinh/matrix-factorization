@@ -20,7 +20,7 @@ def _rmse(
         item_biases (np.ndarray): Item biases vector of shape (n_items, 1)
 
     Returns:
-        float: Root mean squared error
+        rmse [float]: Root mean squared error
     """
     n_ratings = X.shape[0]
     errors = np.zeros(n_ratings)
@@ -31,7 +31,7 @@ def _rmse(
         pred = global_mean + user_biases[user] + item_biases[item]
         errors[i] = rating - pred
 
-    rmse = np.square(errors).mean()
+    rmse = np.sqrt(np.square(errors).mean())
 
     return rmse
 
