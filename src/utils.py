@@ -16,6 +16,10 @@ def preprocess_data(X: pd.DataFrame) -> (np.ndarray, dict, dict):
     # Keep only required columns in given order
     X = X.loc[:, ["u_id", "i_id", "rating"]]
 
+    # Check for duplicate user-item ratings
+    if X.duplicated(subset=["u_id", "i_id"]).sum() != 0:
+        raise Exception("Duplicate user-item ratings in matrix")
+
     # Map u_id and i_id to integers
     user_ids = X["u_id"].unique()
     item_ids = X["i_id"].unique()
