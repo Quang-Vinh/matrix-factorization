@@ -1,6 +1,8 @@
 # data 
 /data
 
+.gitattributes
+
 # vs code
 .vscode
 
