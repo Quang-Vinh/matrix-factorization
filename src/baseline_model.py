@@ -3,7 +3,10 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
-from .utils import preprocess_data
+from .utils import preprocess_data, preprocess_data_update, preprocess_data_predict
+
+
+# TODO: Parallelize ALS
 
 
 @nb.njit()
@@ -27,8 +30,10 @@ def _rmse(
 
     # Iterate through all user-item ratings
     for i in range(n_ratings):
-        user, item, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
-        pred = global_mean + user_biases[user] + item_biases[item]
+        user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
+
+        # Calculate prediction and error
+        pred = global_mean + user_biases[user_id] + item_biases[item_id]
         errors[i] = rating - pred
 
     rmse = np.sqrt(np.square(errors).mean())
@@ -46,6 +51,8 @@ def _sgd(
     lr: float,
     reg: float,
     verbose: int,
+    update_user_biases: bool = True,
+    update_item_biases: bool = True,
 ) -> (np.ndarray, np.ndarray):
     """
     Performs Stochastic Gradient Descent to estimate the user_biases and item_biases
@@ -65,18 +72,17 @@ def _sgd(
         item_biases [np.ndarray] -- Updated item_bases vector
     """
     for epoch in range(n_epochs):
-
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
-            user, item, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
+            user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
 
             # Compute error
-            rating_pred = global_mean + user_biases[user] + item_biases[item]
+            rating_pred = global_mean + user_biases[user_id] + item_biases[item_id]
             error = rating - rating_pred
 
             # Update parameters
-            user_biases[user] += lr * (error - reg * user_biases[user])
-            item_biases[item] += lr * (error - reg * item_biases[item])
+            user_biases[user_id] += lr * (error - reg * user_biases[user_id])
+            item_biases[item_id] += lr * (error - reg * item_biases[item_id])
 
         # Calculate error and print
         if verbose == 1:
@@ -127,9 +133,9 @@ def _als(
     user_counts = np.zeros(n_users)
     item_counts = np.zeros(n_items)
     for i in range(X.shape[0]):
-        user, item = int(X[i, 0]), int(X[i, 1])
-        user_counts[user] += 1
-        item_counts[item] += 1
+        user_id, item_id = int(X[i, 0]), int(X[i, 1])
+        user_counts[user_id] += 1
+        item_counts[item_id] += 1
 
     # For each epoch optimize User biases, and then Item biases
     for epoch in range(n_epochs):
@@ -139,8 +145,8 @@ def _als(
 
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
-            user, item, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
-            user_biases[user] += rating - global_mean - item_biases[item]
+            user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
+            user_biases[user_id] += rating - global_mean - item_biases[item_id]
 
         # Set user bias estimation
         user_biases = user_biases / (reg + user_counts)
@@ -150,8 +156,8 @@ def _als(
 
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
-            user, item, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
-            item_biases[item] += rating - global_mean - user_biases[user]
+            user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
+            item_biases[item_id] += rating - global_mean - user_biases[user_id]
 
         # Set item bias estimation
         item_biases = item_biases / (reg + item_counts)
@@ -177,6 +183,7 @@ def _predict(
     max_rating: int,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
+    clip: bool = True,
 ) -> (list, list):
     """
     Calculate predicted ratings for each user-item pair.
@@ -188,6 +195,7 @@ def _predict(
         max_rating {int} -- Highest rating possible
         user_biases {np.ndarray} -- User biases vector of length n_users
         item_biases {np.ndarray} -- Item biases vector of length n_items
+        clip {boolean} -- Whether to clip predictions in between range [min_rating, max_rating]
 
     Returns:
         predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
@@ -198,22 +206,23 @@ def _predict(
     predictions_possible = []
 
     for i in range(X.shape[0]):
-        user, item = int(X[i, 0]), int(X[i, 1])
-        user_known = user != -1
-        item_known = item != -1
+        user_id, item_id = int(X[i, 0]), int(X[i, 1])
+        user_known = user_id != -1
+        item_known = item_id != -1
 
         rating_pred = global_mean
 
         if user_known:
-            rating_pred += user_biases[user]
+            rating_pred += user_biases[user_id]
         if item_known:
-            rating_pred += item_biases[item]
+            rating_pred += item_biases[item_id]
 
         # Bound ratings to min and max rating range
-        if rating_pred > max_rating:
-            rating_pred = max_rating
-        elif rating_pred < min_rating:
-            rating_pred = min_rating
+        if clip:
+            if rating_pred > max_rating:
+                rating_pred = max_rating
+            elif rating_pred < min_rating:
+                rating_pred = min_rating
 
         predictions.append(rating_pred)
         predictions_possible.append(user_known and item_known)
@@ -243,8 +252,8 @@ class BaselineModel(BaseEstimator):
         global_mean {float} -- Global mean of all ratings
         user_biases {numpy array} -- User bias vector of shape (n_users, 1)
         item_biases {numpy array} -- Item bias vector of shape (n_items, i)
-        _user_id_map {dict} -- Mapping of user ids to assigned integer ids
-        _item_id_map {dict} -- Mapping of item ids to assigned integer ids
+        user_id_map {dict} -- Mapping of user ids to assigned integer ids
+        item_id_map {dict} -- Mapping of item ids to assigned integer ids
         _predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
     """
 
@@ -273,19 +282,19 @@ class BaselineModel(BaseEstimator):
         self.n_users, self.n_items = None, None
         self.global_mean = None
         self.user_biases, self.item_biases = None, None
-        self._user_id_map, self._item_id_map = None, None
+        self.user_id_map, self.item_id_map = None, None
         return
 
     def fit(self, X: pd.DataFrame):
         """ Fits simple mean and bias model to given user item ratings
 
         Arguments:
-            X {pandas DataFrame} -- Dataframe containing columns u_id, i_id and rating
+            X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
         """
-        X, self._user_id_map, self._item_id_map = preprocess_data(X)
+        X, self.user_id_map, self.item_id_map = preprocess_data(X)
 
-        self.n_users = len(self._user_id_map)
-        self.n_items = len(self._item_id_map)
+        self.n_users = len(self.user_id_map)
+        self.n_items = len(self.item_id_map)
 
         # Initialize parameters
         self.user_biases = np.zeros(self.n_users)
@@ -319,24 +328,23 @@ class BaselineModel(BaseEstimator):
 
         return self
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        """Predict ratings for given users and items
+    def predict(self, X: pd.DataFrame) -> list:
+        """
+        Predict ratings for given users and items
 
         Arguments:
-            X {pd.DataFrame} -- Dataframe containing columns u_id and i_id
+            X {pd.DataFrame} -- Dataframe containing columns user_id and item_id
 
         Returns:
             predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
         """
-        # Keep only required columns in given order
-        X = X.loc[:, ["u_id", "i_id"]]
+        # If empty return empty list
+        if X.shape[0] == 0:
+            return []
 
-        # Remap user_id and item_id
-        X.loc[:, "u_id"] = X["u_id"].map(self._user_id_map)
-        X.loc[:, "i_id"] = X["i_id"].map(self._item_id_map)
-
-        # Replace missing mappings with -1
-        X.fillna(-1, inplace=True)
+        X = preprocess_data_predict(
+            X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
+        )
 
         # Get predictions
         predictions, predictions_possible = _predict(
@@ -352,6 +360,43 @@ class BaselineModel(BaseEstimator):
 
         return predictions
 
-    def update_single_user(self, X: np.ndarray):
+    def update_users(self, X: pd.DataFrame, n_epochs: int = 50, verbose: int = 0):
+        """
+        Update current model with new/updated user-item ratings information using SGD
+
+        Args:
+            X (pd.DataFrame): Dataframe containing columns user_id, item_id and rating
+            n_epochs (int, optional): Number of epochs to run SGD. Defaults to 50.
+            verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
+        """
+        X = preprocess_data_update(X=X, item_id_map=self.item_id_map)
+
+        # Add information for new users
+        users = X["user_id"].unique()
+        new_user_id = max(self.user_id_map.values()) + 1
+
+        for user in users:
+            if user in self.user_id_map.keys():
+                continue
+
+            # Add to user id mapping
+            self.user_id_map[user] = new_user_id
+            new_user_id += 1
+
+            # Add user bias parameter
+            self.user_biases = np.append(self.user_biases, 0)
+
+        # Estimate new bias parameter
+        self.user_biases, _ = _sgd(
+            X=X.to_numpy(),
+            global_mean=self.global_mean,
+            user_biases=self.user_biases,
+            item_biases=self.item_biases,
+            n_epochs=self.n_epochs,
+            lr=self.lr,
+            reg=self.reg,
+            verbose=verbose,
+            update_item_biases=False,
+        )
 
         return
