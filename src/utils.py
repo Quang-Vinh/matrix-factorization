@@ -73,7 +73,7 @@ def preprocess_data_predict(
         item_id_map (dict): Dictionary containing mapping of item_ids to assigned integer ids
 
     Returns:
-        pd.DataFrame: [description]
+        pd.DataFrame: Dataframe with only columns user_id, item_id
     """
     # Keep only required columns in given order
     X = X.loc[:, ["user_id", "item_id"]]
