@@ -81,8 +81,10 @@ def _sgd(
             error = rating - rating_pred
 
             # Update parameters
-            user_biases[user_id] += lr * (error - reg * user_biases[user_id])
-            item_biases[item_id] += lr * (error - reg * item_biases[item_id])
+            if update_user_biases:
+                user_biases[user_id] += lr * (error - reg * user_biases[user_id])
+            if update_item_biases:
+                item_biases[item_id] += lr * (error - reg * item_biases[item_id])
 
         # Calculate error and print
         if verbose == 1:
@@ -360,9 +362,10 @@ class BaselineModel(BaseEstimator):
 
         return predictions
 
-    def update_users(self, X: pd.DataFrame, n_epochs: int = 50, verbose: int = 0):
+    def update_users(self, X: pd.DataFrame, n_epochs: int = 20, verbose: int = 0):
         """
-        Update current model with new/updated user-item ratings information using SGD
+        Update current model with new/updated user-item ratings information using SGD. Only the user parameters corresponding for the
+        new/updated users will be updated and item parameters will be left alone.
 
         Args:
             X (pd.DataFrame): Dataframe containing columns user_id, item_id and rating
@@ -386,13 +389,16 @@ class BaselineModel(BaseEstimator):
             # Add user bias parameter
             self.user_biases = np.append(self.user_biases, 0)
 
+        # Remap old user ids to assigned integer ids
+        X.loc[:, "user_id"] = X["user_id"].map(self.user_id_map)
+
         # Estimate new bias parameter
         self.user_biases, _ = _sgd(
             X=X.to_numpy(),
             global_mean=self.global_mean,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
-            n_epochs=self.n_epochs,
+            n_epochs=n_epochs,
             lr=self.lr,
             reg=self.reg,
             verbose=verbose,
