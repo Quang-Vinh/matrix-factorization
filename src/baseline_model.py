@@ -72,6 +72,7 @@ def _sgd(
         item_biases [np.ndarray] -- Updated item_bases vector
     """
     for epoch in range(n_epochs):
+
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
             user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
@@ -242,8 +243,8 @@ class BaselineModel(BaseEstimator):
     Arguments:
         method: {str} -- Method to estimate parameters. Can be one of 'sgd' or 'als' (default: {'sgd'})
         n_epochs {int} -- Number of epochs to train for (default: {100})
-        reg {float} -- Lambda parameter for L2 regularization (default: {0.2})
-        lr {float} -- Learning rate for gradient optimization step (default: {0.005})
+        reg {float} -- Lambda parameter for L2 regularization (default: {0})
+        lr {float} -- Learning rate for gradient optimization step (default: {0.01})
         min_rating {int} -- Smallest rating possible (default: {0})
         max_rating {int} -- Largest rating possible (default: {5})
         verbose {str} -- Verbosity when fitting. 0 to not print anything, 1 to print fitting model (default: {1})
@@ -263,8 +264,8 @@ class BaselineModel(BaseEstimator):
         self,
         method: str = "sgd",
         n_epochs: int = 100,
-        reg: float = 0.02,
-        lr: float = 0.005,
+        reg: float = 0,
+        lr: float = 0.01,
         min_rating: int = 0,
         max_rating: int = 5,
         verbose=1,
@@ -362,35 +363,24 @@ class BaselineModel(BaseEstimator):
 
         return predictions
 
-    def update_users(self, X: pd.DataFrame, n_epochs: int = 20, verbose: int = 0):
+    def update_users(
+        self, X: pd.DataFrame, lr: float = 0.01, n_epochs: int = 20, verbose: int = 0
+    ):
         """
-        Update current model with new/updated user-item ratings information using SGD. Only the user parameters corresponding for the
+        Update user biases vector with new/updated user-item ratings information using SGD. Only the user parameters corresponding for the
         new/updated users will be updated and item parameters will be left alone.
 
         Args:
             X (pd.DataFrame): Dataframe containing columns user_id, item_id and rating
-            n_epochs (int, optional): Number of epochs to run SGD. Defaults to 50.
+            n_epochs (int, optional): Number of epochs to run SGD. Defaults to 20.
             verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
         """
-        X = preprocess_data_update(X=X, item_id_map=self.item_id_map)
+        X, self.user_id_map, n_new_users = preprocess_data_update(
+            X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
+        )
 
-        # Add information for new users
-        users = X["user_id"].unique()
-        new_user_id = max(self.user_id_map.values()) + 1
-
-        for user in users:
-            if user in self.user_id_map.keys():
-                continue
-
-            # Add to user id mapping
-            self.user_id_map[user] = new_user_id
-            new_user_id += 1
-
-            # Add user bias parameter
-            self.user_biases = np.append(self.user_biases, 0)
-
-        # Remap old user ids to assigned integer ids
-        X.loc[:, "user_id"] = X["user_id"].map(self.user_id_map)
+        # Add new parameter for new users
+        self.user_biases = np.append(self.user_biases, np.zeros(n_new_users))
 
         # Estimate new bias parameter
         self.user_biases, _ = _sgd(
@@ -399,7 +389,7 @@ class BaselineModel(BaseEstimator):
             user_biases=self.user_biases,
             item_biases=self.item_biases,
             n_epochs=n_epochs,
-            lr=self.lr,
+            lr=lr,
             reg=self.reg,
             verbose=verbose,
             update_item_biases=False,

@@ -35,8 +35,8 @@ def preprocess_data(X: pd.DataFrame) -> (pd.DataFrame, dict, dict):
 
 
 def preprocess_data_update(
-    X: pd.DataFrame, item_id_map: dict
-) -> (pd.DataFrame, dict, dict):
+    X: pd.DataFrame, user_id_map: dict, item_id_map: dict
+) -> (pd.DataFrame, dict, int):
     """
     Preprocesses user-item ratings dataframe of new or updated ratings
 
@@ -46,6 +46,8 @@ def preprocess_data_update(
 
     Returns:
         X [pd.DataFrame]: Dataframe with only columns user_id, item_id and rating
+        user_id_map [dict]: Updated dictionary with item_ids including new users
+        n_new_users [int]: Number of new users
     """
     # Keep only item and ratings
     X = X.loc[:, ["user_id", "item_id", "rating"]]
@@ -58,7 +60,26 @@ def preprocess_data_update(
     items = item_id_map.keys()
     X = X.query("item_id in @items").copy()
 
-    return X
+    # Add information on new users
+    users = X["user_id"].unique()
+    n_new_users = 0
+    new_user_id = max(user_id_map.values()) + 1
+
+    for user in users:
+        if user in user_id_map.keys():
+            continue
+
+        n_new_users += 1
+
+        # Add to user id mapping
+        user_id_map[user] = new_user_id
+        new_user_id += 1
+
+    # Remap user_id and item_id
+    X.loc[:, "user_id"] = X["user_id"].map(user_id_map)
+    X.loc[:, "item_id"] = X["item_id"].map(item_id_map)
+
+    return X, user_id_map, n_new_users
 
 
 def preprocess_data_predict(
