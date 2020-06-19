@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
-from .utils import preprocess_data, preprocess_data_update, preprocess_data_predict
+from .preprocess import preprocess_data, preprocess_data_update, preprocess_data_predict
 
 
 # TODO: Parallelize ALS
@@ -51,8 +51,8 @@ def _sgd(
     lr: float,
     reg: float,
     verbose: int,
-    update_user_biases: bool = True,
-    update_item_biases: bool = True,
+    update_user_params: bool = True,
+    update_item_params: bool = True,
 ) -> (np.ndarray, np.ndarray):
     """
     Performs Stochastic Gradient Descent to estimate the user_biases and item_biases
@@ -66,6 +66,8 @@ def _sgd(
         lr {float} -- Learning rate alpha
         reg {float} -- Regularization parameter lambda for Frobenius norm
         verbose {int} -- Verbosity when fitting. 0 for nothing and 1 for printing epochs
+        update_user_params {bool} -- Whether to update user bias parameters or not. Default is True.
+        update_item_params {bool} -- Whether to update item bias parameters or not. Default is True.
 
     Returns:
         user_biases [np.ndarray] -- Updated user_biases vector
@@ -82,9 +84,9 @@ def _sgd(
             error = rating - rating_pred
 
             # Update parameters
-            if update_user_biases:
+            if update_user_params:
                 user_biases[user_id] += lr * (error - reg * user_biases[user_id])
-            if update_item_biases:
+            if update_item_params:
                 item_biases[item_id] += lr * (error - reg * item_biases[item_id])
 
         # Calculate error and print
@@ -368,19 +370,27 @@ class BaselineModel(BaseEstimator):
     ):
         """
         Update user biases vector with new/updated user-item ratings information using SGD. Only the user parameters corresponding for the
-        new/updated users will be updated and item parameters will be left alone.
+        new/updated users will be updated and item parameters will be left alone. 
+        
+        Note: If updating old users then pass all user-item ratings for old users and not just modified ratings
 
         Args:
             X (pd.DataFrame): Dataframe containing columns user_id, item_id and rating
+            lr (float, optional): Learning rate alpha for gradient optimization step
             n_epochs (int, optional): Number of epochs to run SGD. Defaults to 20.
             verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
         """
-        X, self.user_id_map, n_new_users = preprocess_data_update(
+        X, self.user_id_map, old_users, new_users = preprocess_data_update(
             X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
         )
 
-        # Add new parameter for new users
-        self.user_biases = np.append(self.user_biases, np.zeros(n_new_users))
+        # Re-initialize user bias for old users
+        for user in old_users:
+            user_index = self.user_id_map[user]
+            self.user_biases[user_index] = 0
+
+        # Add user bias param for new users
+        self.user_biases = np.append(self.user_biases, np.zeros(len(new_users)))
 
         # Estimate new bias parameter
         self.user_biases, _ = _sgd(
@@ -392,7 +402,7 @@ class BaselineModel(BaseEstimator):
             lr=lr,
             reg=self.reg,
             verbose=verbose,
-            update_item_biases=False,
+            update_item_params=False,
         )
 
         return

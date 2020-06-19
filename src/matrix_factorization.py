@@ -3,16 +3,18 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
-from .utils import preprocess_data
+from .preprocess import preprocess_data, preprocess_data_predict, preprocess_data_update
 
 
-# TODO: Add Minibatch GD as an option
-# TODO: Save training RMSE values
-# TODO: Add Incremental option
 # TODO: Train each feature component incrementally
-# TODO: Add non-linearity function with sigmoid according to Simon Funk
-# TODO: ALS optimization
+# TODO: Add non-linearity function with sigmoid according to Simon Funk. Kernel functions
+
+# TODO: Add early stopping
+# TODO: Save training RMSE values
 # TODO: change fit signature to match sklearn
+# TODO: Add input checking
+# TODO: Abstract update to either matrices and not just user matrix since the MF model is symmetric in terms of user/items
+# TODO: Maybe have separate reg and lr param for update?
 
 
 @nb.njit()
@@ -44,14 +46,14 @@ def _rmse(
 
     # Iterate through all user-item ratings
     for i in range(n_ratings):
-        user, item, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
-        pred = (
+        user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
+        rating_pred = (
             global_mean
-            + user_biases[user]
-            + item_biases[item]
-            + np.dot(user_features[user, :], item_features[item, :])
+            + user_biases[user_id]
+            + item_biases[item_id]
+            + np.dot(user_features[user_id, :], item_features[item_id, :])
         )
-        errors[i] = rating - pred
+        errors[i] = rating - rating_pred
 
     rmse = np.sqrt(np.square(errors).mean())
 
@@ -70,6 +72,8 @@ def _sgd(
     lr: float,
     reg: float,
     verbose: int,
+    update_user_params: bool = True,
+    update_item_params: bool = True,
 ) -> (np.ndarray, np.ndarray, np.ndarray, np.ndarray):
     """
     Performs stochastic gradient descent. Similar to https://github.com/gbolmier/funk-svd and https://github.com/NicolasHug/Surprise we iterate
@@ -88,6 +92,8 @@ def _sgd(
         lr {float} -- Learning rate alpha
         reg {float} -- Regularization parameter lambda for Frobenius norm
         verbose {int} -- Verbosity when fitting. 0 for nothing and 1 for printing epochs
+        update_user_params {bool} -- Whether to update user bias parameters or not. Default is True.
+        update_item_params {bool} -- Whether to update item bias parameters or not. Default is True.
 
     Returns:
         user_features [np.ndarray] -- Updated user_features matrix P
@@ -102,28 +108,37 @@ def _sgd(
 
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
-            user, item, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
-            item_bias = item_biases[item]
-            user_bias = user_biases[user]
+            user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
+            item_bias = item_biases[item_id]
+            user_bias = user_biases[user_id]
 
             # Compute error
             rating_pred = global_mean + item_bias + user_bias
             for f in range(n_factors):
-                rating_pred += user_features[user, f] * item_features[item, f]
+                rating_pred += user_features[user_id, f] * item_features[item_id, f]
             error = rating - rating_pred
 
-            # Update parameters
-            item_biases[item] += lr * (error - reg * item_bias)
-            user_biases[user] += lr * (error - reg * user_bias)
+            # Update bias parameters
+            if update_user_params:
+                user_biases[user_id] += lr * (error - reg * user_bias)
+
+            if update_item_params:
+                item_biases[item_id] += lr * (error - reg * item_bias)
+
+            # Update P and Q matrices containing latent factor parameters
             for f in range(n_factors):
-                user_feature = user_features[user, f]
-                item_feature = item_features[item, f]
-                user_features[user, f] += lr * (
-                    error * item_feature - reg * user_feature
-                )
-                item_features[item, f] += lr * (
-                    error * user_feature - reg * item_feature
-                )
+                user_feature = user_features[user_id, f]
+                item_feature = item_features[item_id, f]
+
+                if update_user_params:
+                    user_features[user_id, f] += lr * (
+                        error * item_feature - reg * user_feature
+                    )
+
+                if update_item_params:
+                    item_features[item_id, f] += lr * (
+                        error * user_feature - reg * item_feature
+                    )
 
         # Calculate error and print
         if verbose == 1:
@@ -172,19 +187,19 @@ def _predict(
     predictions_possible = []
 
     for i in range(X.shape[0]):
-        user, item = int(X[i, 0]), int(X[i, 1])
-        user_known = user != -1
-        item_known = item != -1
+        user_id, item_id = int(X[i, 0]), int(X[i, 1])
+        user_known = user_id != -1
+        item_known = item_id != -1
 
         rating_pred = global_mean
 
         # If known user or time then add corresponding bias and feature vector product
         if user_known:
-            rating_pred += user_biases[user]
+            rating_pred += user_biases[user_id]
         if item_known:
-            rating_pred += item_biases[item]
+            rating_pred += item_biases[item_id]
         if user_known and item_known:
-            rating_pred += np.dot(user_features[user, :], item_features[item, :])
+            rating_pred += np.dot(user_features[user_id, :], item_features[item_id, :])
 
         # Bound ratings to min and max rating range
         if rating_pred > max_rating:
@@ -200,15 +215,15 @@ def _predict(
 
 class MatrixFactorization(BaseEstimator):
     """ 
-    Matrix Factorization (FunkSVD) by Simon Funk. Finds the thin matrices P and Q such that P * Q^T give a good low rank approximation to the user-item 
+    Biased Matrix Factorization (FunkSVD) by Simon Funk. Finds the thin matrices P and Q such that P * Q^T give a good low rank approximation to the user-item 
     ratings matrix A based on RMSE. This is different from SVD despite the name as unlike SVD there is no constraint for matrices P and Q to have mutually
     orthogonal columns. This algorithm also only uses the observed user item ratings and does not focus on the priors. 
 
     Arguments:
         n_factors {int} -- The number of latent factors in matrices P and Q (default: {100})
         n_epochs {int} -- Number of epochs to train for (default: {100})
-        reg {float} -- Lambda parameter for regularization with Frobenius norm (default: {0.2})
-        lr {float} -- Learning rate for gradient optimization step (default: {0.005})
+        reg {float} -- Regularization parameter lambda for Tikhonov regularization (default: {0})
+        lr {float} -- Learning rate alpha for gradient optimization step (default: {0.01})
         init_mean {float} -- Mean of normal distribution to use for initializing parameters (default: {0})
         init_sd {float} -- Standard deviation of normal distribution to use for initializing parameters (default: {0.1})
         min_rating {int} -- Smallest rating possible (default: {0})
@@ -223,8 +238,8 @@ class MatrixFactorization(BaseEstimator):
         item_features {numpy array} -- Decomposed Q matrix of item features of shape (n_items, n_factors)
         user_biases {numpy array} -- User bias vector of shape (n_users, 1)
         item_biases {numpy array} -- Item bias vector of shape (n_items, i)
-        _user_id_map {dict} -- Mapping of user ids to assigned integer ids
-        _item_id_map {dict} -- Mapping of item ids to assigned integer ids
+        user_id_map {dict} -- Mapping of user ids to assigned integer ids
+        item_id_map {dict} -- Mapping of item ids to assigned integer ids
         _predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
     """
 
@@ -232,8 +247,8 @@ class MatrixFactorization(BaseEstimator):
         self,
         n_factors: int = 100,
         n_epochs: int = 100,
-        reg: float = 0.2,
-        lr: float = 0.005,
+        reg: float = 0,
+        lr: float = 0.01,
         init_mean: float = 0,
         init_sd: float = 0.1,
         min_rating: int = 0,
@@ -253,19 +268,20 @@ class MatrixFactorization(BaseEstimator):
         self.global_mean = None
         self.user_features, self.item_features = None, None
         self.user_biases, self.item_biases = None, None
-        self._user_id_map, self._item_id_map = None, None
+        self.user_id_map, self.item_id_map = None, None
         return
 
     def fit(self, X: pd.DataFrame):
-        """ Decompose user-item rating matrix into thin matrices p and q along with biases
+        """ 
+        Decompose user-item rating matrix into thin matrices P and Q along with biases
 
         Arguments:
-            X {pandas DataFrame} -- Dataframe containing columns u_id, i_id and rating
+            X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
         """
-        X, self._user_id_map, self._item_id_map = preprocess_data(X)
+        X, self.user_id_map, self.item_id_map = preprocess_data(X)
 
-        self.n_users = len(self._user_id_map)
-        self.n_items = len(self._item_id_map)
+        self.n_users = len(self.user_id_map)
+        self.n_items = len(self.item_id_map)
 
         # Initialize parameters
         self.user_features = np.random.normal(
@@ -300,24 +316,23 @@ class MatrixFactorization(BaseEstimator):
 
         return self
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        """Predict ratings for given users and items
+    def predict(self, X: pd.DataFrame) -> list:
+        """
+        Predict ratings for given users and items
 
         Arguments:
-            X {pd.DataFrame} -- Dataframe containing columns u_id and i_id
+            X {pd.DataFrame} -- Dataframe containing columns user_id and item_id
 
         Returns:
             predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
         """
-        # Keep only required columns in given order
-        X = X.loc[:, ["u_id", "i_id"]]
+        # If empty return empty list
+        if X.shape[0] == 0:
+            return []
 
-        # Remap user_id and item_id
-        X.loc[:, "u_id"] = X["u_id"].map(self._user_id_map)
-        X.loc[:, "i_id"] = X["i_id"].map(self._item_id_map)
-
-        # Replace missing mappings with -1
-        X.fillna(-1, inplace=True)
+        X = preprocess_data_predict(
+            X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
+        )
 
         # Get predictions
         predictions, predictions_possible = _predict(
@@ -334,3 +349,69 @@ class MatrixFactorization(BaseEstimator):
         self._predictions_possible = predictions_possible
 
         return predictions
+
+    def update_users(
+        self, X: pd.DataFrame, lr: float = 0.01, n_epochs: int = 20, verbose: int = 0
+    ):
+        """
+        Update P user features matrix with new/updated user-item ratings information using SGD. Only the user parameters corresponding for the
+        new/updated users will be updated and item parameters will be left alone.
+
+        Note: If updating old users then pass all user-item ratings for old users and not just modified ratings
+
+        Args:
+            X (pd.DataFrame): Dataframe containing columns user_id, item_id and rating
+            lr (float, optional): Learning rate alpha for gradient optimization step
+            n_epochs (int, optional): Number of epochs to run SGD. Defaults to 20.
+            verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
+        """
+        X, self.user_id_map, old_users, new_users = preprocess_data_update(
+            X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
+        )
+
+        n_new_users = len(new_users)
+
+        # Re-initialize params for old users
+        for user in old_users:
+            user_index = self.user_id_map[user]
+
+            # Initialize latent factors vector
+            self.user_features[user_index, :] = np.random.normal(
+                self.init_mean, self.init_sd, (1, self.n_factors)
+            )
+
+            # Initialize bias
+            self.user_biases[user_index] = 0
+
+        # Add bias parameters for new users
+        self.user_biases = np.append(self.user_biases, np.zeros(n_new_users))
+
+        # Add latent factor parameters for new users by adding rows to P matrix
+        new_user_features = np.random.normal(
+            self.init_mean, self.init_sd, (n_new_users, self.n_factors)
+        )
+        self.user_features = np.concatenate(
+            (self.user_features, new_user_features), axis=0
+        )
+
+        # Estimate new parameters
+        (
+            self.user_features,
+            self.item_features,
+            self.user_biases,
+            self.item_biases,
+        ) = _sgd(
+            X=X.to_numpy(),
+            global_mean=self.global_mean,
+            user_features=self.user_features,
+            item_features=self.item_features,
+            user_biases=self.user_biases,
+            item_biases=self.item_biases,
+            n_epochs=n_epochs,
+            lr=lr,
+            reg=self.reg,
+            verbose=verbose,
+            update_item_params=False,
+        )
+
+        return
