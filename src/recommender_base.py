@@ -60,6 +60,9 @@ class RecommenderBase(BaseEstimator):
             if X.duplicated(subset=["user_id", "item_id"]).sum() != 0:
                 raise Exception("Duplicate user-item ratings in matrix")
 
+            # Shuffle rows
+            X = X.sample(frac=1, replace=False)
+
         if type == "fit":
             # Create mapping of user_id and item_id to assigned integer ids
             user_ids = X["user_id"].unique()
