@@ -1,9 +1,9 @@
 import numba as nb
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator
 
 from .preprocess import preprocess_data, preprocess_data_update, preprocess_data_predict
+from .recommender_base import RecommenderBase
 
 
 # TODO: Parallelize ALS
@@ -235,7 +235,7 @@ def _predict(
     return predictions, predictions_possible
 
 
-class BaselineModel(BaseEstimator):
+class BaselineModel(RecommenderBase):
     """
     Simple model which models the user item rating as r_{ui} = \mu + ubias_u + ibias_i which is sum of a global mean and the corresponding
     user and item biases. The global mean \mu is estimated as the mean of all ratings. The other parameters to be estimated ubias and ibias 
@@ -247,7 +247,7 @@ class BaselineModel(BaseEstimator):
     Arguments:
         method: {str} -- Method to estimate parameters. Can be one of 'sgd' or 'als' (default: {'sgd'})
         n_epochs {int} -- Number of epochs to train for (default: {100})
-        reg {float} -- Lambda parameter for L2 regularization (default: {0})
+        reg {float} -- Lambda parameter for L2 regularization (default: {1})
         lr {float} -- Learning rate for gradient optimization step (default: {0.01})
         min_rating {int} -- Smallest rating possible (default: {0})
         max_rating {int} -- Largest rating possible (default: {5})
@@ -268,13 +268,12 @@ class BaselineModel(BaseEstimator):
         self,
         method: str = "sgd",
         n_epochs: int = 100,
-        reg: float = 0,
+        reg: float = 1,
         lr: float = 0.01,
         min_rating: int = 0,
         max_rating: int = 5,
         verbose=1,
     ):
-
         # Check inputs
         if method not in ("sgd", "als"):
             raise Exception('Method param must be either "sgd" or "als"')
@@ -293,7 +292,8 @@ class BaselineModel(BaseEstimator):
         return
 
     def fit(self, X: pd.DataFrame):
-        """ Fits simple mean and bias model to given user item ratings
+        """ 
+        Fits simple mean and bias model to given user item ratings
 
         Arguments:
             X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
@@ -343,7 +343,7 @@ class BaselineModel(BaseEstimator):
             X {pd.DataFrame} -- Dataframe containing columns user_id and item_id
 
         Returns:
-            predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
+            predictions [list] -- List containing rating predictions of all user, items in same order as input X
         """
         # If empty return empty list
         if X.shape[0] == 0:

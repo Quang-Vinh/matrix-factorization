@@ -1,9 +1,9 @@
 import numba as nb
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator
 
 from .preprocess import preprocess_data, preprocess_data_predict, preprocess_data_update
+from .recommender_base import RecommenderBase
 
 
 # TODO: Train each feature component incrementally
@@ -213,22 +213,22 @@ def _predict(
     return predictions, predictions_possible
 
 
-class MatrixFactorization(BaseEstimator):
+class MatrixFactorization(RecommenderBase):
     """ 
-    Biased Matrix Factorization (FunkSVD) by Simon Funk. Finds the thin matrices P and Q such that P * Q^T give a good low rank approximation to the user-item 
+    Biased Matrix Factorization. Finds the thin matrices P and Q such that P * Q^T give a good low rank approximation to the user-item 
     ratings matrix A based on RMSE. This is different from SVD despite the name as unlike SVD there is no constraint for matrices P and Q to have mutually
     orthogonal columns. This algorithm also only uses the observed user item ratings and does not focus on the priors. 
 
     Arguments:
         n_factors {int} -- The number of latent factors in matrices P and Q (default: {100})
         n_epochs {int} -- Number of epochs to train for (default: {100})
-        reg {float} -- Regularization parameter lambda for Tikhonov regularization (default: {0})
+        reg {float} -- Regularization parameter lambda for Tikhonov regularization (default: {1})
         lr {float} -- Learning rate alpha for gradient optimization step (default: {0.01})
         init_mean {float} -- Mean of normal distribution to use for initializing parameters (default: {0})
         init_sd {float} -- Standard deviation of normal distribution to use for initializing parameters (default: {0.1})
         min_rating {int} -- Smallest rating possible (default: {0})
         max_rating {int} -- Largest rating possible (default: {5})
-        verbose {str} -- Verbosity when fitting. 0 to not print anything, 1 to print fitting model (default: {1})
+        verbose {str} -- Verbosity when fitting. Values possible are 0 to not print anything, 1 to print fitting model (default: {1})
 
     Attributes:
         n_users {int} -- Number of users
@@ -247,7 +247,7 @@ class MatrixFactorization(BaseEstimator):
         self,
         n_factors: int = 100,
         n_epochs: int = 100,
-        reg: float = 0,
+        reg: float = 1,
         lr: float = 0.01,
         init_mean: float = 0,
         init_sd: float = 0.1,
@@ -273,7 +273,7 @@ class MatrixFactorization(BaseEstimator):
 
     def fit(self, X: pd.DataFrame):
         """ 
-        Decompose user-item rating matrix into thin matrices P and Q along with biases
+        Decompose user-item rating matrix into thin matrices P and Q along with user and item bias vectors
 
         Arguments:
             X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
@@ -324,7 +324,7 @@ class MatrixFactorization(BaseEstimator):
             X {pd.DataFrame} -- Dataframe containing columns user_id and item_id
 
         Returns:
-            predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
+            predictions [list] -- List containing rating predictions of all user, items in same order as input X
         """
         # If empty return empty list
         if X.shape[0] == 0:
@@ -375,13 +375,13 @@ class MatrixFactorization(BaseEstimator):
         for user in old_users:
             user_index = self.user_id_map[user]
 
+            # Initialize bias
+            self.user_biases[user_index] = 0
+
             # Initialize latent factors vector
             self.user_features[user_index, :] = np.random.normal(
                 self.init_mean, self.init_sd, (1, self.n_factors)
             )
-
-            # Initialize bias
-            self.user_biases[user_index] = 0
 
         # Add bias parameters for new users
         self.user_biases = np.append(self.user_biases, np.zeros(n_new_users))
@@ -415,41 +415,3 @@ class MatrixFactorization(BaseEstimator):
         )
 
         return
-
-    def recommend(
-        self,
-        user,
-        amount: int = 10,
-        items_known: list = None,
-        include_user: bool = True,
-    ) -> pd.DataFrame:
-        """
-        Returns a DataFrame of recommendations of items for a given user sorted from highest to lowest.
-
-        Args:
-            user (any): User_id (not assigned user_id from self.user_id_map)
-            items_known (list, optional): List of items already known by user and to not be considered in recommendations. Defaults to None.
-            include_user (bool, optional): Whether to include the user_id in the output DataFrame or not. Defaults to True.
-
-        Returns:
-            pd.DataFrame: Recommendations DataFrame for user with columns user_id (optional), item_id, rating sorted from highest to lowest rating 
-        """
-        items = list(self.item_id_map.keys())
-
-        # If items_known is provided then filter by items that the user does not know
-        if items_known is not None:
-            items_known = list(items_known)
-            items = [item for item in items if item not in items_known]
-
-        # Get rating predictions for given user and all unknown items
-        items_recommend = pd.DataFrame({"user_id": user, "item_id": items})
-        items_recommend["rating_pred"] = self.predict(X=items_recommend)
-
-        # Sort and keep top n items
-        items_recommend.sort_values(by="rating_pred", ascending=False, inplace=True)
-        items_recommend = items_recommend.head(amount)
-
-        if not include_user:
-            items_recommend.drop(["user_id"], axis="columns", inplace=True)
-
-        return items_recommend
