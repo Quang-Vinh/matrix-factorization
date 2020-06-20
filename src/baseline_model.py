@@ -114,7 +114,7 @@ def _als(
 ) -> (np.ndarray, np.ndarray):
     """
     Performs Alternating Least Squares to estimate the user_biases and item_biases. For every epoch, the item biases are held constant while
-    solving directly for the user biases parameters using a closed form equation. Then the user biases paremeters is held constant and the same
+    solving directly for the user biases parameters using a closed form equation. Then the user biases parameters is held constant and the same
     is done for the item biases. This can be derived easily and is given in the lecture here https://www.youtube.com/watch?v=gCaOa3W9kM0&t=32m55s
     which is also similar to the implementation in Surprise.
 
@@ -241,6 +241,8 @@ class BaselineModel(BaseEstimator):
     user and item biases. The global mean \mu is estimated as the mean of all ratings. The other parameters to be estimated ubias and ibias 
     are vectors of length n_users and n_items respectively. These two vectors are estimated using stochastic gradient descent on the RMSE 
     with regularization.
+
+    NOTE: Recommend function not implemented as it would simply recommend the most popular items for every user
 
     Arguments:
         method: {str} -- Method to estimate parameters. Can be one of 'sgd' or 'als' (default: {'sgd'})
