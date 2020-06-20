@@ -2,7 +2,6 @@ import numba as nb
 import numpy as np
 import pandas as pd
 
-from .preprocess import preprocess_data, preprocess_data_update, preprocess_data_predict
 from .recommender_base import RecommenderBase
 
 
@@ -278,17 +277,15 @@ class BaselineModel(RecommenderBase):
         if method not in ("sgd", "als"):
             raise Exception('Method param must be either "sgd" or "als"')
 
+        super(BaselineModel, self).__init__(
+            min_rating=min_rating, max_rating=max_rating, verbose=verbose
+        )
+
         self.method = method
         self.n_epochs = n_epochs
         self.reg = reg
         self.lr = lr
-        self.min_rating = min_rating
-        self.max_rating = max_rating
-        self.verbose = verbose
-        self.n_users, self.n_items = None, None
-        self.global_mean = None
         self.user_biases, self.item_biases = None, None
-        self.user_id_map, self.item_id_map = None, None
         return
 
     def fit(self, X: pd.DataFrame):
@@ -298,16 +295,12 @@ class BaselineModel(RecommenderBase):
         Arguments:
             X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
         """
-        X, self.user_id_map, self.item_id_map = preprocess_data(X)
-
-        self.n_users = len(self.user_id_map)
-        self.n_items = len(self.item_id_map)
+        X = self._preprocess_data(X=X, type="fit")
+        self.global_mean = X["rating"].mean()
 
         # Initialize parameters
         self.user_biases = np.zeros(self.n_users)
         self.item_biases = np.zeros(self.n_items)
-
-        self.global_mean = X["rating"].mean()
 
         # Run parameter estimation
         if self.method == "sgd":
@@ -349,9 +342,7 @@ class BaselineModel(RecommenderBase):
         if X.shape[0] == 0:
             return []
 
-        X = preprocess_data_predict(
-            X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
-        )
+        X = self._preprocess_data(X=X, type="predict")
 
         # Get predictions
         predictions, predictions_possible = _predict(
@@ -382,12 +373,10 @@ class BaselineModel(RecommenderBase):
             n_epochs (int, optional): Number of epochs to run SGD. Defaults to 20.
             verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
         """
-        X, self.user_id_map, old_users, new_users = preprocess_data_update(
-            X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
-        )
+        X, known_users, new_users = self._preprocess_data(X=X, type="update")
 
         # Re-initialize user bias for old users
-        for user in old_users:
+        for user in known_users:
             user_index = self.user_id_map[user]
             self.user_biases[user_index] = 0
 

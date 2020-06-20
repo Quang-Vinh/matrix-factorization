@@ -2,7 +2,6 @@ import numba as nb
 import numpy as np
 import pandas as pd
 
-from .preprocess import preprocess_data, preprocess_data_predict, preprocess_data_update
 from .recommender_base import RecommenderBase
 
 
@@ -255,20 +254,17 @@ class MatrixFactorization(RecommenderBase):
         max_rating: int = 5,
         verbose: int = 1,
     ):
+        super(MatrixFactorization, self).__init__(
+            min_rating=min_rating, max_rating=max_rating, verbose=verbose
+        )
         self.n_factors = n_factors
         self.n_epochs = n_epochs
         self.reg = reg
         self.lr = lr
         self.init_mean = init_mean
         self.init_sd = init_sd
-        self.min_rating = min_rating
-        self.max_rating = max_rating
-        self.verbose = verbose
-        self.n_users, self.n_items = None, None
-        self.global_mean = None
         self.user_features, self.item_features = None, None
         self.user_biases, self.item_biases = None, None
-        self.user_id_map, self.item_id_map = None, None
         return
 
     def fit(self, X: pd.DataFrame):
@@ -278,22 +274,20 @@ class MatrixFactorization(RecommenderBase):
         Arguments:
             X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
         """
-        X, self.user_id_map, self.item_id_map = preprocess_data(X)
+        X = self._preprocess_data(X=X, type="fit")
+        self.global_mean = X["rating"].mean()
 
-        self.n_users = len(self.user_id_map)
-        self.n_items = len(self.item_id_map)
+        # Initialize vector bias parameters
+        self.user_biases = np.zeros(self.n_users)
+        self.item_biases = np.zeros(self.n_items)
 
-        # Initialize parameters
+        # Initialize latent factor parameters of matrices P and Q
         self.user_features = np.random.normal(
             self.init_mean, self.init_sd, (self.n_users, self.n_factors)
         )
         self.item_features = np.random.normal(
             self.init_mean, self.init_sd, (self.n_items, self.n_factors)
         )
-        self.user_biases = np.zeros(self.n_users)
-        self.item_biases = np.zeros(self.n_items)
-
-        self.global_mean = X["rating"].mean()
 
         # Perform stochastic gradient descent
         (
@@ -330,9 +324,7 @@ class MatrixFactorization(RecommenderBase):
         if X.shape[0] == 0:
             return []
 
-        X = preprocess_data_predict(
-            X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
-        )
+        X = self._preprocess_data(X=X, type="predict")
 
         # Get predictions
         predictions, predictions_possible = _predict(
@@ -365,14 +357,11 @@ class MatrixFactorization(RecommenderBase):
             n_epochs (int, optional): Number of epochs to run SGD. Defaults to 20.
             verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
         """
-        X, self.user_id_map, old_users, new_users = preprocess_data_update(
-            X=X, user_id_map=self.user_id_map, item_id_map=self.item_id_map
-        )
-
+        X, known_users, new_users = self._preprocess_data(X=X, type="update")
         n_new_users = len(new_users)
 
         # Re-initialize params for old users
-        for user in old_users:
+        for user in known_users:
             user_index = self.user_id_map[user]
 
             # Initialize bias
