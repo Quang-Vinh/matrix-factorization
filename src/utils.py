@@ -31,7 +31,9 @@ def train_update_test_split(X: pd.DataFrame, frac_new_users: float):
     )
 
     # Initial training matrix
-    train_initial = X.query("user_id not in @users_update")
+    train_initial = X.query("user_id not in @users_update").sample(
+        frac=1, replace=False
+    )
 
     # Train and test sets for updating model. For each new user split their ratings into two sets, one for update and one for test
     data_update = X.query("user_id in @users_update")
