@@ -9,7 +9,7 @@ from .recommender_base import RecommenderBase
 
 
 @nb.njit()
-def _rmse(
+def _calculate_rmse(
     X: np.ndarray, global_mean: float, user_biases: np.ndarray, item_biases: np.ndarray
 ):
     """
@@ -90,7 +90,7 @@ def _sgd(
 
         # Calculate error and print
         if verbose == 1:
-            rmse = _rmse(
+            rmse = _calculate_rmse(
                 X=X,
                 global_mean=global_mean,
                 user_biases=user_biases,
@@ -168,7 +168,7 @@ def _als(
 
         # Calculate error and print
         if verbose == 1:
-            rmse = _rmse(
+            rmse = _calculate_rmse(
                 X=X,
                 global_mean=global_mean,
                 user_biases=user_biases,
@@ -187,7 +187,6 @@ def _predict(
     max_rating: int,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
-    clip: bool = True,
 ) -> (list, list):
     """
     Calculate predicted ratings for each user-item pair.
@@ -222,11 +221,10 @@ def _predict(
             rating_pred += item_biases[item_id]
 
         # Bound ratings to min and max rating range
-        if clip:
-            if rating_pred > max_rating:
-                rating_pred = max_rating
-            elif rating_pred < min_rating:
-                rating_pred = min_rating
+        if rating_pred > max_rating:
+            rating_pred = max_rating
+        elif rating_pred < min_rating:
+            rating_pred = min_rating
 
         predictions.append(rating_pred)
         predictions_possible.append(user_known and item_known)
@@ -241,7 +239,8 @@ class BaselineModel(RecommenderBase):
     are vectors of length n_users and n_items respectively. These two vectors are estimated using stochastic gradient descent on the RMSE 
     with regularization.
 
-    NOTE: Recommend function not implemented as it would simply recommend the most popular items for every user
+    NOTE: Recommend method with this model will simply recommend the most popular items for every user. This model should mainly be used
+          for estimating the explicit rating for a given user and item 
 
     Arguments:
         method: {str} -- Method to estimate parameters. Can be one of 'sgd' or 'als' (default: {'sgd'})
