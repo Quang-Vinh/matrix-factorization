@@ -3,6 +3,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 
+# TODO: Use abc module
 # TODO: Conserve memory by setting numpy data types and benchmark performance
 
 
@@ -58,7 +59,7 @@ class RecommenderBase(BaseEstimator):
         if type in ("fit", "update"):
             # Check for duplicate user-item ratings
             if X.duplicated(subset=["user_id", "item_id"]).sum() != 0:
-                raise Exception("Duplicate user-item ratings in matrix")
+                raise ValueError("Duplicate user-item ratings in matrix")
 
             # Shuffle rows
             X = X.sample(frac=1, replace=False)
