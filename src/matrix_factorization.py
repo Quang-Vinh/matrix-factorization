@@ -1,29 +1,34 @@
+import math
 import numba as nb
 import numpy as np
 import pandas as pd
 
+from .kernels import kernel_linear, kernel_sigmoid, kernel_rbf, sigmoid
 from .recommender_base import RecommenderBase
 
 
-# TODO: Train each feature component incrementally
-# TODO: Add non-linearity function with sigmoid according to Simon Funk. Kernel functions
+# TODO: clean up requirements.txt file
+# TODO: Update comments
+# TODO: reorganize code, pass references to matrices and manipulate those
+# TODO: maybe use "auto" for gamma rbf parameter
 
-# TODO: Add early stopping
 # TODO: Save training RMSE values
+# TODO: Add early stopping and validation set option
 # TODO: change fit signature to match sklearn
-# TODO: Add input checking
-# TODO: Abstract update to either matrices and not just user matrix since the MF model is symmetric in terms of user/items
-# TODO: Maybe have separate reg and lr param for update?
 
 
 @nb.njit()
-def _rmse(
+def _calculate_rmse(
     X: np.ndarray,
     global_mean: float,
     user_features: np.ndarray,
     item_features: np.ndarray,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
+    min_rating: float,
+    max_rating: float,
+    kernel: str,
+    gamma: float,
 ):
     """
     Calculates root mean squared error for given data and model parameters
@@ -35,6 +40,10 @@ def _rmse(
         item_features (np.ndarray): Item features matrix Q of size (n_items, n_factors)
         user_biases (np.ndarray): User biases vector of shape (n_users, 1)
         item_biases (np.ndarray): Item biases vector of shape (n_items, 1)
+        min_rating (float): Minimum possible rating
+        max_rating (float): Maximum possible rating
+        kernel (str): Kernel type. Possible options are "linear", "sigmoid" or "rbf" kernel
+        gamma (float): Kernel coefficient only for "rbf" kernel
 
     Returns:
         rmse [float]: Root mean squared error
@@ -43,15 +52,45 @@ def _rmse(
     n_ratings = X.shape[0]
     errors = np.zeros(n_ratings)
 
-    # Iterate through all user-item ratings
+    # Iterate through all user-item ratings and calculate error
     for i in range(n_ratings):
         user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
-        rating_pred = (
-            global_mean
-            + user_biases[user_id]
-            + item_biases[item_id]
-            + np.dot(user_features[user_id, :], item_features[item_id, :])
-        )
+        user_bias = user_biases[user_id]
+        item_bias = item_biases[item_id]
+        user_feature = user_features[user_id, :]
+        item_feature = item_features[item_id, :]
+
+        # Calculate predicted rating for given kernel
+        if kernel == "linear":
+            rating_pred = kernel_linear(
+                global_mean=global_mean,
+                user_bias=user_bias,
+                item_bias=item_bias,
+                user_features=user_feature,
+                item_features=item_feature,
+            )
+
+        elif kernel == "sigmoid":
+            rating_pred = kernel_sigmoid(
+                global_mean=global_mean,
+                user_bias=user_bias,
+                item_bias=item_bias,
+                user_features=user_feature,
+                item_features=item_feature,
+                a=min_rating,
+                c=max_rating - min_rating,
+            )
+
+        elif kernel == "rbf":
+            rating_pred = kernel_rbf(
+                user_features=user_feature,
+                item_features=item_feature,
+                gamma=gamma,
+                a=min_rating,
+                c=max_rating - min_rating,
+            )
+
+        # Calculate error
         errors[i] = rating - rating_pred
 
     rmse = np.sqrt(np.square(errors).mean())
@@ -63,19 +102,23 @@ def _rmse(
 def _sgd(
     X: np.ndarray,
     global_mean: float,
-    user_features: np.ndarray,
-    item_features: np.ndarray,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
+    user_features: np.ndarray,
+    item_features: np.ndarray,
     n_epochs: int,
+    kernel: str,
+    gamma: float,
     lr: float,
     reg: float,
+    min_rating: float,
+    max_rating: float,
     verbose: int,
     update_user_params: bool = True,
     update_item_params: bool = True,
 ) -> (np.ndarray, np.ndarray, np.ndarray, np.ndarray):
     """
-    Performs stochastic gradient descent. Similar to https://github.com/gbolmier/funk-svd and https://github.com/NicolasHug/Surprise we iterate
+    Performs stochastic gradient descent to estimate parameters. Similar to https://github.com/gbolmier/funk-svd and https://github.com/NicolasHug/Surprise we iterate
     over each factor manually for a given user/item instead of indexing by a row such as user_feature[user] since it has shown to be much faster. 
     We have also tested with representing user_features and item_features as 1D arrays but that also is much slower. Using parallel turned on in numba
     gives much worse performance as well.
@@ -83,13 +126,17 @@ def _sgd(
     Arguments:
         X {numpy array} -- User-item ranking matrix
         global_mean {float} -- Global mean of all ratings
-        user_features {numpy array} -- Start matrix P of user features of shape (n_users, n_factors)
-        item_features {numpy array} -- Start matrix Q of item features of shape (n_items, n_factors)
         user_biases {numpy array} -- User biases vector of shape (n_users, 1)
         item_biases {numpy array} -- Item biases vector of shape (n_items, 1)
+        user_features {numpy array} -- Start matrix P of user features of shape (n_users, n_factors)
+        item_features {numpy array} -- Start matrix Q of item features of shape (n_items, n_factors)
         n_epochs {int} -- Number of epochs to run
+        kernel {str} -- Kernel function to use between user and item features. Options are 'linear', 'logistic', and 'rbf'. 
+        gamma {float} -- Kernel coefficient for 'rbf'. Ignored by other kernels. 
         lr {float} -- Learning rate alpha
         reg {float} -- Regularization parameter lambda for Frobenius norm
+        min_rating {float} -- Minimum possible rating
+        max_fating {float} -- Maximum possible rating
         verbose {int} -- Verbosity when fitting. 0 for nothing and 1 for printing epochs
         update_user_params {bool} -- Whether to update user bias parameters or not. Default is True.
         update_item_params {bool} -- Whether to update item bias parameters or not. Default is True.
@@ -101,53 +148,131 @@ def _sgd(
         item_biases [np.ndarray] -- Updated item_bases vector
     """
     n_factors = user_features.shape[1]
-    error = 0
 
     for epoch in range(n_epochs):
 
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
             user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
-            item_bias = item_biases[item_id]
-            user_bias = user_biases[user_id]
+            user_feature = user_features[user_id, :]
+            item_feature = item_features[item_id, :]
 
-            # Compute error
-            rating_pred = global_mean + item_bias + user_bias
-            for f in range(n_factors):
-                rating_pred += user_features[user_id, f] * item_features[item_id, f]
-            error = rating - rating_pred
+            if kernel != "rbf":
+                user_bias = user_biases[user_id]
+                item_bias = item_biases[item_id]
 
-            # Update bias parameters
-            if update_user_params:
-                user_biases[user_id] += lr * (error - reg * user_bias)
+            if kernel == "linear":
+                # Compute rating
+                rating_pred = global_mean + item_bias + user_bias
+                for f in range(n_factors):
+                    rating_pred += user_features[user_id, f] * item_features[item_id, f]
 
-            if update_item_params:
-                item_biases[item_id] += lr * (error - reg * item_bias)
+                # Computer error
+                error = rating_pred - rating
 
-            # Update P and Q matrices containing latent factor parameters
-            for f in range(n_factors):
-                user_feature = user_features[user_id, f]
-                item_feature = item_features[item_id, f]
-
+                # Update bias parameters
                 if update_user_params:
-                    user_features[user_id, f] += lr * (
-                        error * item_feature - reg * user_feature
-                    )
+                    user_biases[user_id] -= lr * (error + reg * user_bias)
 
                 if update_item_params:
-                    item_features[item_id, f] += lr * (
-                        error * user_feature - reg * item_feature
-                    )
+                    item_biases[item_id] -= lr * (error + reg * item_bias)
+
+                # Update user and item features
+                for i in range(n_factors):
+                    user_feature = user_features[user_id, i]
+                    item_feature = item_features[item_id, i]
+
+                    if update_user_params:
+                        user_features[user_id, i] -= lr * (
+                            error * item_feature + reg * user_feature
+                        )
+
+                    if update_item_params:
+                        item_features[item_id, i] -= lr * (
+                            error * user_feature + reg * item_feature
+                        )
+
+            elif kernel == "sigmoid":
+                # Compute predicted rating
+                linear_sum = (
+                    global_mean
+                    + user_bias
+                    + item_bias
+                    + np.dot(user_feature, item_feature)
+                )
+                sigmoid_result = sigmoid(linear_sum)
+                rating_pred = min_rating + (max_rating - min_rating) * sigmoid_result
+
+                # Compute error
+                error = rating_pred - rating
+
+                # Common term shared between all partial derivatives
+                deriv_base = (sigmoid_result ** 2) * math.exp(-linear_sum)
+
+                # Update bias parameters
+                if update_user_params:
+                    opt_deriv = error * deriv_base + reg * user_bias
+                    user_biases[user_id] -= lr * opt_deriv
+
+                if update_item_params:
+                    opt_deriv = error * deriv_base + reg * item_bias
+                    item_biases[item_id] -= lr * opt_deriv
+
+                # Update user and item features
+                for i in range(n_factors):
+                    user_feature = user_features[user_id, i]
+                    item_feature = item_features[item_id, i]
+
+                    if update_user_params:
+                        user_feature_deriv = item_feature * deriv_base
+                        opt_deriv = error * user_feature_deriv + reg * user_feature
+                        user_features[user_id, i] -= lr * opt_deriv
+
+                    if update_item_params:
+                        item_feature_deriv = user_feature * deriv_base
+                        opt_deriv = error * item_feature_deriv + reg * item_feature
+                        item_features[item_id, i] -= lr * opt_deriv
+
+            elif kernel == "rbf":
+                # Compute predicted rating
+                power = -gamma * np.sum(np.square(user_feature - item_feature))
+                exp_result = math.exp(power)
+                rating_pred = min_rating + (max_rating - min_rating) * exp_result
+
+                # Compute error
+                error = rating_pred - rating
+
+                # Common term shared between partial derivatives
+                deriv_base = 2 * exp_result * gamma
+
+                # Update user and item features params
+                for i in range(n_factors):
+                    user_feature = user_features[user_id, i]
+                    item_feature = item_features[item_id, i]
+
+                    if update_user_params:
+                        user_feature_deriv = deriv_base * (item_feature - user_feature)
+                        opt_deriv = error * user_feature_deriv + reg * user_feature
+                        user_features[user_id, i] -= lr * opt_deriv
+
+                    if update_item_params:
+                        item_feature_deriv = deriv_base * (user_feature - item_feature)
+                        opt_deriv = error * item_feature_deriv + reg * item_feature
+                        item_features[item_id, i] -= lr * opt_deriv
 
         # Calculate error and print
         if verbose == 1:
-            rmse = _rmse(
+            rmse = _calculate_rmse(
                 X=X,
                 global_mean=global_mean,
                 user_features=user_features,
                 item_features=item_features,
                 user_biases=user_biases,
                 item_biases=item_biases,
+                min_rating=min_rating,
+                max_rating=max_rating,
+                kernel=kernel,
+                gamma=gamma,
             )
             print("Epoch ", epoch + 1, "/", n_epochs, " -  train_rmse:", rmse)
 
@@ -158,12 +283,15 @@ def _sgd(
 def _predict(
     X: np.ndarray,
     global_mean: float,
-    min_rating: int,
-    max_rating: int,
-    user_features: np.ndarray,
-    item_features: np.ndarray,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
+    user_features: np.ndarray,
+    item_features: np.ndarray,
+    min_rating: int,
+    max_rating: int,
+    kernel: str,
+    gamma: float,
+    bound_ratings: bool = False,
 ) -> (list, list):
     """ 
     Calculate predicted ratings for each user-item pair.
@@ -171,12 +299,15 @@ def _predict(
     Arguments:
         X {np.ndarray} -- Matrix with columns representing (user_id, item_id)
         global_mean {float} -- Global mean of all ratings
-        min_rating {int} -- Lowest rating possible
-        max_rating {int} -- Highest rating possible
-        user_features {np.ndarray} -- User features matrix P of shape (n_users, n_factors)
-        item_features {np.ndarray} -- Item features matrix Q of shape (n_items, n_factors)
         user_biases {np.ndarray} -- User biases vector of length n_users
         item_biases {np.ndarray} -- Item biases vector of length n_items
+        user_features {np.ndarray} -- User features matrix P of shape (n_users, n_factors)
+        item_features {np.ndarray} -- Item features matrix Q of shape (n_items, n_factors)
+        min_rating {int} -- Lowest rating possible
+        max_rating {int} -- Highest rating possible
+        kernel {str} -- Kernel function. Options are 'linear', 'sigmoid', and 'rbf'
+        gamma {float} -- Kernel coefficient for 'rbf' only
+        bound_ratings {bool} -- Bound predicted ratings based on min_rating and max_rating
 
     Returns:
         predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
@@ -190,15 +321,44 @@ def _predict(
         user_known = user_id != -1
         item_known = item_id != -1
 
-        rating_pred = global_mean
+        if kernel == "linear":
+            rating_pred = global_mean
 
-        # If known user or time then add corresponding bias and feature vector product
-        if user_known:
-            rating_pred += user_biases[user_id]
-        if item_known:
-            rating_pred += item_biases[item_id]
-        if user_known and item_known:
-            rating_pred += np.dot(user_features[user_id, :], item_features[item_id, :])
+            # If known user or item then add corresponding bias and feature vector product
+            if user_known:
+                rating_pred += user_biases[user_id]
+            if item_known:
+                rating_pred += item_biases[item_id]
+            if user_known and item_known:
+                rating_pred += np.dot(
+                    user_features[user_id, :], item_features[item_id, :]
+                )
+
+        elif kernel == "sigmoid":
+            linear_sum = global_mean
+
+            # If known user or item then add corresponding bias and feature vector product
+            if user_known:
+                linear_sum += user_biases[user_id]
+            if item_known:
+                linear_sum += item_biases[item_id]
+            if user_known and item_known:
+                linear_sum += np.dot(
+                    user_features[user_id, :], item_features[item_id, :]
+                )
+
+            sigmoid_result = sigmoid(linear_sum)
+            rating_pred = min_rating + (max_rating - min_rating) * sigmoid_result
+
+        elif kernel == "rbf":
+            if user_known and item_known:
+                power = -gamma * np.sum(
+                    np.square(user_features[user_id, :] - item_features[item_id, :])
+                )
+                exp_result = math.exp(power)
+                rating_pred = min_rating + (max_rating - min_rating) * exp_result
+            else:
+                rating_pred = global_mean
 
         # Bound ratings to min and max rating range
         if rating_pred > max_rating:
@@ -221,7 +381,9 @@ class MatrixFactorization(RecommenderBase):
     Arguments:
         n_factors {int} -- The number of latent factors in matrices P and Q (default: {100})
         n_epochs {int} -- Number of epochs to train for (default: {100})
-        reg {float} -- Regularization parameter lambda for Tikhonov regularization (default: {1})
+        kernel {str} -- Kernel function to use between user and item features. Options are 'linear', 'logistic' or 'rbf'. (default: {'linear'})
+        gamma {float} -- Kernel coefficient for 'rbf'. Ignored by other kernels. (default: 0.05)
+        reg {float} -- Regularization parameter lambda for Tikhonov regularization (default: {0.01})
         lr {float} -- Learning rate alpha for gradient optimization step (default: {0.01})
         init_mean {float} -- Mean of normal distribution to use for initializing parameters (default: {0})
         init_sd {float} -- Standard deviation of normal distribution to use for initializing parameters (default: {0.1})
@@ -233,10 +395,10 @@ class MatrixFactorization(RecommenderBase):
         n_users {int} -- Number of users
         n_items {int} -- Number of items
         global_mean {float} -- Global mean of all ratings
-        user_features {numpy array} -- Decomposed P matrix of user features of shape (n_users, n_factors)
-        item_features {numpy array} -- Decomposed Q matrix of item features of shape (n_items, n_factors)
         user_biases {numpy array} -- User bias vector of shape (n_users, 1)
         item_biases {numpy array} -- Item bias vector of shape (n_items, i)
+        user_features {numpy array} -- Decomposed P matrix of user features of shape (n_users, n_factors)
+        item_features {numpy array} -- Decomposed Q matrix of item features of shape (n_items, n_factors)
         user_id_map {dict} -- Mapping of user ids to assigned integer ids
         item_id_map {dict} -- Mapping of item ids to assigned integer ids
         _predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
@@ -246,6 +408,8 @@ class MatrixFactorization(RecommenderBase):
         self,
         n_factors: int = 100,
         n_epochs: int = 100,
+        kernel: str = "linear",
+        gamma: float = 0.01,
         reg: float = 1,
         lr: float = 0.01,
         init_mean: float = 0,
@@ -259,12 +423,14 @@ class MatrixFactorization(RecommenderBase):
         )
         self.n_factors = n_factors
         self.n_epochs = n_epochs
+        self.kernel = kernel
+        self.gamma = gamma
         self.reg = reg
         self.lr = lr
         self.init_mean = init_mean
         self.init_sd = init_sd
-        self.user_features, self.item_features = None, None
         self.user_biases, self.item_biases = None, None
+        self.user_features, self.item_features = None, None
         return
 
     def fit(self, X: pd.DataFrame):
@@ -298,13 +464,17 @@ class MatrixFactorization(RecommenderBase):
         ) = _sgd(
             X=X.to_numpy(),
             global_mean=self.global_mean,
-            user_features=self.user_features,
-            item_features=self.item_features,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
+            user_features=self.user_features,
+            item_features=self.item_features,
             n_epochs=self.n_epochs,
+            kernel=self.kernel,
+            gamma=self.gamma,
             lr=self.lr,
             reg=self.reg,
+            min_rating=self.min_rating,
+            max_rating=self.max_rating,
             verbose=self.verbose,
         )
 
@@ -330,16 +500,17 @@ class MatrixFactorization(RecommenderBase):
         predictions, predictions_possible = _predict(
             X=X.to_numpy(),
             global_mean=self.global_mean,
-            min_rating=self.min_rating,
-            max_rating=self.max_rating,
-            user_features=self.user_features,
-            item_features=self.item_features,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
+            user_features=self.user_features,
+            item_features=self.item_features,
+            min_rating=self.min_rating,
+            max_rating=self.max_rating,
+            kernel=self.kernel,
+            gamma=self.gamma,
         )
 
         self._predictions_possible = predictions_possible
-
         return predictions
 
     def update_users(
@@ -392,15 +563,20 @@ class MatrixFactorization(RecommenderBase):
         ) = _sgd(
             X=X.to_numpy(),
             global_mean=self.global_mean,
-            user_features=self.user_features,
-            item_features=self.item_features,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
+            user_features=self.user_features,
+            item_features=self.item_features,
             n_epochs=n_epochs,
+            kernel=self.kernel,
+            gamma=self.gamma,
             lr=lr,
             reg=self.reg,
+            min_rating=self.min_rating,
+            max_rating=self.max_rating,
             verbose=verbose,
             update_item_params=False,
         )
 
         return
+
