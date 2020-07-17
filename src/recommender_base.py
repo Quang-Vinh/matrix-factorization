@@ -2,12 +2,12 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
+from abc import ABCMeta, abstractmethod
 
-# TODO: Use abc module
 # TODO: Conserve memory by setting numpy data types and benchmark performance
 
 
-class RecommenderBase(BaseEstimator):
+class RecommenderBase(BaseEstimator, metaclass=ABCMeta):
     """
     Abstract base class for all recommender models.
     All subclasses should implement the fit() and predict() methods
@@ -106,6 +106,7 @@ class RecommenderBase(BaseEstimator):
         else:
             return X
 
+    @abstractmethod
     def fit(self, X: pd.DataFrame):
         """
         Fit model to given data
@@ -115,6 +116,7 @@ class RecommenderBase(BaseEstimator):
         """
         return self
 
+    @abstractmethod
     def predict(self, X: pd.DataFrame) -> list:
         """
         Predict ratings for given users and items
