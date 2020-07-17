@@ -7,13 +7,13 @@ from .kernels import (
     kernel_linear,
     kernel_sigmoid,
     kernel_rbf,
-    sigmoid,
     kernel_linear_sgd_update,
     kernel_sigmoid_sgd_update,
     kernel_rbf_sgd_update,
 )
-
 from .recommender_base import RecommenderBase
+
+from typing import Tuple
 
 
 # TODO: clean up requirements.txt file
@@ -55,7 +55,6 @@ def _calculate_rmse(
     Returns:
         rmse [float]: Root mean squared error
     """
-    n_factors = user_features.shape[1]
     n_ratings = X.shape[0]
     errors = np.zeros(n_ratings)
 
@@ -123,7 +122,7 @@ def _sgd(
     verbose: int,
     update_user_params: bool = True,
     update_item_params: bool = True,
-) -> (np.ndarray, np.ndarray, np.ndarray, np.ndarray):
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Performs stochastic gradient descent to estimate parameters.
 
@@ -151,8 +150,6 @@ def _sgd(
         user_biases [np.ndarray] -- Updated user_biases vector
         item_biases [np.ndarray] -- Updated item_bases vector
     """
-    n_factors = user_features.shape[1]
-
     for epoch in range(n_epochs):
 
         # Iterate through all user-item ratings
@@ -240,8 +237,7 @@ def _predict(
     max_rating: int,
     kernel: str,
     gamma: float,
-    bound_ratings: bool = False,
-) -> (list, list):
+) -> Tuple[list, list]:
     """ 
     Calculate predicted ratings for each user-item pair.
 
@@ -262,6 +258,7 @@ def _predict(
         predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
         predictions_possible [np.ndarray] -- Vector of whether both given user and item were contained in the data that the model was fitted on
     """
+    n_factors = user_features.shape[1]
     predictions = []
     predictions_possible = []
 
@@ -270,44 +267,45 @@ def _predict(
         user_known = user_id != -1
         item_known = item_id != -1
 
-        if kernel == "linear":
-            rating_pred = global_mean
+        # Default values if user or item are not known
+        user_bias = user_biases[user_id] if user_known else 0
+        item_bias = item_biases[item_id] if item_known else 0
+        user_feature_vec = (
+            user_features[user_id, :] if user_known else np.zeros(n_factors)
+        )
+        item_feature_vec = (
+            item_features[item_id, :] if item_known else np.zeros(n_factors)
+        )
 
-            # If known user or item then add corresponding bias and feature vector product
-            if user_known:
-                rating_pred += user_biases[user_id]
-            if item_known:
-                rating_pred += item_biases[item_id]
-            if user_known and item_known:
-                rating_pred += np.dot(
-                    user_features[user_id, :], item_features[item_id, :]
-                )
+        # Calculate predicted rating given kernel
+        if kernel == "linear":
+            rating_pred = kernel_linear(
+                global_mean=global_mean,
+                user_bias=user_bias,
+                item_bias=item_bias,
+                user_features=user_feature_vec,
+                item_features=item_feature_vec,
+            )
 
         elif kernel == "sigmoid":
-            linear_sum = global_mean
-
-            # If known user or item then add corresponding bias and feature vector product
-            if user_known:
-                linear_sum += user_biases[user_id]
-            if item_known:
-                linear_sum += item_biases[item_id]
-            if user_known and item_known:
-                linear_sum += np.dot(
-                    user_features[user_id, :], item_features[item_id, :]
-                )
-
-            sigmoid_result = sigmoid(linear_sum)
-            rating_pred = min_rating + (max_rating - min_rating) * sigmoid_result
+            rating_pred = kernel_sigmoid(
+                global_mean=global_mean,
+                user_bias=user_bias,
+                item_bias=item_bias,
+                user_features=user_feature_vec,
+                item_features=item_feature_vec,
+                a=min_rating,
+                c=max_rating - min_rating,
+            )
 
         elif kernel == "rbf":
-            if user_known and item_known:
-                power = -gamma * np.sum(
-                    np.square(user_features[user_id, :] - item_features[item_id, :])
-                )
-                exp_result = math.exp(power)
-                rating_pred = min_rating + (max_rating - min_rating) * exp_result
-            else:
-                rating_pred = global_mean
+            rating_pred = kernel_rbf(
+                user_features=user_feature_vec,
+                item_features=item_feature_vec,
+                gamma=gamma,
+                a=min_rating,
+                c=max_rating - min_rating,
+            )
 
         # Bound ratings to min and max rating range
         if rating_pred > max_rating:
@@ -528,4 +526,3 @@ class MatrixFactorization(RecommenderBase):
         )
 
         return
-
