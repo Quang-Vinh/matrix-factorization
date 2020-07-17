@@ -3,6 +3,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from abc import ABCMeta, abstractmethod
+from typing import Tuple, Union
 
 # TODO: Conserve memory by setting numpy data types and benchmark performance
 
@@ -36,7 +37,9 @@ class RecommenderBase(BaseEstimator, metaclass=ABCMeta):
         self.user_id_map, self.item_id_map = None, None
         return
 
-    def _preprocess_data(self, X: pd.DataFrame, type: str = "fit") -> pd.DataFrame:
+    def _preprocess_data(
+        self, X: pd.DataFrame, type: str = "fit"
+    ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, list, list]]:
         """
         Preprocessing steps before doing fit, update or predict
 
