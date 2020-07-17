@@ -26,6 +26,7 @@ class RecommenderBase(BaseEstimator, metaclass=ABCMeta):
 
     """
 
+    @abstractmethod
     def __init__(self, min_rating: float = 0, max_rating: float = 5, verbose: int = 0):
         self.min_rating = min_rating
         self.max_rating = max_rating
