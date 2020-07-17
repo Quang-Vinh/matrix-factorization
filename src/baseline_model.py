@@ -5,9 +5,6 @@ import pandas as pd
 from .recommender_base import RecommenderBase
 
 
-# TODO: Parallelize ALS
-
-
 @nb.njit()
 def _calculate_rmse(
     X: np.ndarray, global_mean: float, user_biases: np.ndarray, item_biases: np.ndarray

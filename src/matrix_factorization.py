@@ -13,14 +13,12 @@ from .kernels import (
 )
 from .recommender_base import RecommenderBase
 
-from typing import Tuple
+from typing import Tuple, Union
 
 
 # TODO: clean up requirements.txt file
-# TODO: maybe use "auto" for gamma rbf parameter
 
 # TODO: Save training RMSE values
-# TODO: Add early stopping and validation set option
 # TODO: change fit signature to match sklearn
 
 
@@ -28,10 +26,10 @@ from typing import Tuple
 def _calculate_rmse(
     X: np.ndarray,
     global_mean: float,
-    user_features: np.ndarray,
-    item_features: np.ndarray,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
+    user_features: np.ndarray,
+    item_features: np.ndarray,
     min_rating: float,
     max_rating: float,
     kernel: str,
@@ -43,10 +41,10 @@ def _calculate_rmse(
     Args:
         X (np.ndarray): Matrix with columns user, item and rating
         global_mean (float): Global mean rating
-        user_features (np.ndarray): User features matrix P of size (n_users, n_factors)
-        item_features (np.ndarray): Item features matrix Q of size (n_items, n_factors)
         user_biases (np.ndarray): User biases vector of shape (n_users, 1)
         item_biases (np.ndarray): Item biases vector of shape (n_items, 1)
+        user_features (np.ndarray): User features matrix P of size (n_users, n_factors)
+        item_features (np.ndarray): Item features matrix Q of size (n_items, n_factors)
         min_rating (float): Minimum possible rating
         max_rating (float): Maximum possible rating
         kernel (str): Kernel type. Possible options are "linear", "sigmoid" or "rbf" kernel
@@ -63,8 +61,8 @@ def _calculate_rmse(
         user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
         user_bias = user_biases[user_id]
         item_bias = item_biases[item_id]
-        user_feature = user_features[user_id, :]
-        item_feature = item_features[item_id, :]
+        user_feature_vec = user_features[user_id, :]
+        item_feature_vec = item_features[item_id, :]
 
         # Calculate predicted rating for given kernel
         if kernel == "linear":
@@ -72,8 +70,8 @@ def _calculate_rmse(
                 global_mean=global_mean,
                 user_bias=user_bias,
                 item_bias=item_bias,
-                user_features=user_feature,
-                item_features=item_feature,
+                user_feature_vec=user_feature_vec,
+                item_feature_vec=item_feature_vec,
             )
 
         elif kernel == "sigmoid":
@@ -81,16 +79,16 @@ def _calculate_rmse(
                 global_mean=global_mean,
                 user_bias=user_bias,
                 item_bias=item_bias,
-                user_features=user_feature,
-                item_features=item_feature,
+                user_feature_vec=user_feature_vec,
+                item_feature_vec=item_feature_vec,
                 a=min_rating,
                 c=max_rating - min_rating,
             )
 
         elif kernel == "rbf":
             rating_pred = kernel_rbf(
-                user_features=user_feature,
-                item_features=item_feature,
+                user_feature_vec=user_feature_vec,
+                item_feature_vec=item_feature_vec,
                 gamma=gamma,
                 a=min_rating,
                 c=max_rating - min_rating,
@@ -211,10 +209,10 @@ def _sgd(
             rmse = _calculate_rmse(
                 X=X,
                 global_mean=global_mean,
-                user_features=user_features,
-                item_features=item_features,
                 user_biases=user_biases,
                 item_biases=item_biases,
+                user_features=user_features,
+                item_features=item_features,
                 min_rating=min_rating,
                 max_rating=max_rating,
                 kernel=kernel,
@@ -283,8 +281,8 @@ def _predict(
                 global_mean=global_mean,
                 user_bias=user_bias,
                 item_bias=item_bias,
-                user_features=user_feature_vec,
-                item_features=item_feature_vec,
+                user_feature_vec=user_feature_vec,
+                item_feature_vec=item_feature_vec,
             )
 
         elif kernel == "sigmoid":
@@ -292,16 +290,16 @@ def _predict(
                 global_mean=global_mean,
                 user_bias=user_bias,
                 item_bias=item_bias,
-                user_features=user_feature_vec,
-                item_features=item_feature_vec,
+                user_feature_vec=user_feature_vec,
+                item_feature_vec=item_feature_vec,
                 a=min_rating,
                 c=max_rating - min_rating,
             )
 
         elif kernel == "rbf":
             rating_pred = kernel_rbf(
-                user_features=user_feature_vec,
-                item_features=item_feature_vec,
+                user_feature_vec=user_feature_vec,
+                item_feature_vec=item_feature_vec,
                 gamma=gamma,
                 a=min_rating,
                 c=max_rating - min_rating,
@@ -329,7 +327,7 @@ class MatrixFactorization(RecommenderBase):
         n_factors {int} -- The number of latent factors in matrices P and Q (default: {100})
         n_epochs {int} -- Number of epochs to train for (default: {100})
         kernel {str} -- Kernel function to use between user and item features. Options are 'linear', 'logistic' or 'rbf'. (default: {'linear'})
-        gamma {float} -- Kernel coefficient for 'rbf'. Ignored by other kernels. (default: 0.05)
+        gamma {str or float} -- Kernel coefficient for 'rbf'. Ignored by other kernels. If 'auto' is used then will be set to 1/n_factors. (default: 'auto')
         reg {float} -- Regularization parameter lambda for Tikhonov regularization (default: {0.01})
         lr {float} -- Learning rate alpha for gradient optimization step (default: {0.01})
         init_mean {float} -- Mean of normal distribution to use for initializing parameters (default: {0})
@@ -356,7 +354,7 @@ class MatrixFactorization(RecommenderBase):
         n_factors: int = 100,
         n_epochs: int = 100,
         kernel: str = "linear",
-        gamma: float = 0.01,
+        gamma: Union[str, float] = "auto",
         reg: float = 1,
         lr: float = 0.01,
         init_mean: float = 0,
@@ -371,7 +369,7 @@ class MatrixFactorization(RecommenderBase):
         self.n_factors = n_factors
         self.n_epochs = n_epochs
         self.kernel = kernel
-        self.gamma = gamma
+        self.gamma = 1 / n_factors if gamma == "auto" else gamma
         self.reg = reg
         self.lr = lr
         self.init_mean = init_mean

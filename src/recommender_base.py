@@ -5,8 +5,6 @@ from sklearn.base import BaseEstimator
 from abc import ABCMeta, abstractmethod
 from typing import Tuple, Union
 
-# TODO: Conserve memory by setting numpy data types and benchmark performance
-
 
 class RecommenderBase(BaseEstimator, metaclass=ABCMeta):
     """

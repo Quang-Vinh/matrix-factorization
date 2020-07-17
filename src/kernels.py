@@ -23,8 +23,8 @@ def kernel_linear(
     global_mean: float,
     user_bias: float,
     item_bias: float,
-    user_features: np.ndarray,
-    item_features: np.ndarray,
+    user_feature_vec: np.ndarray,
+    item_feature_vec: np.ndarray,
 ) -> float:
     """
     Calculates result with a linear kernel which is essentially just the dot product
@@ -33,13 +33,15 @@ def kernel_linear(
         global_mean (float): Global mean
         user_bias (float): User bias
         item_bias (float): Item bias
-        user_features (np.ndarray): Vector of user latent features 
-        item_features (np.ndarray): Vector of item latent features
+        user_feature_vec (np.ndarray): Vector of user latent features 
+        item_feature_vec (np.ndarray): Vector of item latent features
 
     Returns:
         [float]: Linear kernel result
     """
-    result = global_mean + item_bias + user_bias + np.dot(user_features, item_features)
+    result = (
+        global_mean + item_bias + user_bias + np.dot(user_feature_vec, item_feature_vec)
+    )
     return result
 
 
@@ -48,8 +50,8 @@ def kernel_sigmoid(
     global_mean: float,
     user_bias: float,
     item_bias: float,
-    user_features: np.ndarray,
-    item_features: np.ndarray,
+    user_feature_vec: np.ndarray,
+    item_feature_vec: np.ndarray,
     a: float,
     c: float,
 ):
@@ -60,8 +62,8 @@ def kernel_sigmoid(
         global_mean (float): Global mean
         user_bias (float): User bias
         item_bias (float): Item bias
-        user_features (np.ndarray): Vector of user latent features
-        item_features (np.ndarray): Vector of item latent features
+        user_feature_vec (np.ndarray): Vector of user latent features
+        item_feature_vec (np.ndarray): Vector of item latent features
         a (float): Rescaling parameter for a + c * K(u, i)
         c (float): Rescaling parameter for a + c * K(u, i)
 
@@ -69,7 +71,7 @@ def kernel_sigmoid(
         [float]: Sigmoid kernel result
     """
     linear_sum = (
-        global_mean + user_bias + item_bias + np.dot(user_features, item_features)
+        global_mean + user_bias + item_bias + np.dot(user_feature_vec, item_feature_vec)
     )
     sigmoid_result = sigmoid(linear_sum)
     result = a + c * sigmoid_result
@@ -78,8 +80,8 @@ def kernel_sigmoid(
 
 @nb.njit()
 def kernel_rbf(
-    user_features: np.ndarray,
-    item_features: np.ndarray,
+    user_feature_vec: np.ndarray,
+    item_feature_vec: np.ndarray,
     gamma: float,
     a: float,
     c: float,
@@ -88,8 +90,8 @@ def kernel_rbf(
     Calculates result with Radial basis function kernel
 
     Args:
-        user_features (np.ndarray): Vector of user latent features
-        item_features (np.ndarray): Vector of item latent features
+        user_feature_vec (np.ndarray): Vector of user latent features
+        item_feature_vec (np.ndarray): Vector of item latent features
         gamma (float): Kernel coefficient
         a (float): Rescaling parameter for a + c * K(u, i)
         c (float): Rescaling parameter for a + c * K(u, i)
@@ -97,7 +99,7 @@ def kernel_rbf(
     Returns:
         [float]: RBF kernel result 
     """
-    power = -gamma * np.sum(np.square(user_features - item_features))
+    power = -gamma * np.sum(np.square(user_feature_vec - item_feature_vec))
     exp_result = math.exp(power)
     result = a + c * exp_result
     return result
