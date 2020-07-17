@@ -3,13 +3,20 @@ import numba as nb
 import numpy as np
 import pandas as pd
 
-from .kernels import kernel_linear, kernel_sigmoid, kernel_rbf, sigmoid
+from .kernels import (
+    kernel_linear,
+    kernel_sigmoid,
+    kernel_rbf,
+    sigmoid,
+    kernel_linear_sgd_update,
+    kernel_sigmoid_sgd_update,
+    kernel_rbf_sgd_update,
+)
+
 from .recommender_base import RecommenderBase
 
 
 # TODO: clean up requirements.txt file
-# TODO: Update comments
-# TODO: reorganize code, pass references to matrices and manipulate those
 # TODO: maybe use "auto" for gamma rbf parameter
 
 # TODO: Save training RMSE values
@@ -118,10 +125,7 @@ def _sgd(
     update_item_params: bool = True,
 ) -> (np.ndarray, np.ndarray, np.ndarray, np.ndarray):
     """
-    Performs stochastic gradient descent to estimate parameters. Similar to https://github.com/gbolmier/funk-svd and https://github.com/NicolasHug/Surprise we iterate
-    over each factor manually for a given user/item instead of indexing by a row such as user_feature[user] since it has shown to be much faster. 
-    We have also tested with representing user_features and item_features as 1D arrays but that also is much slower. Using parallel turned on in numba
-    gives much worse performance as well.
+    Performs stochastic gradient descent to estimate parameters.
 
     Arguments:
         X {numpy array} -- User-item ranking matrix
@@ -138,8 +142,8 @@ def _sgd(
         min_rating {float} -- Minimum possible rating
         max_fating {float} -- Maximum possible rating
         verbose {int} -- Verbosity when fitting. 0 for nothing and 1 for printing epochs
-        update_user_params {bool} -- Whether to update user bias parameters or not. Default is True.
-        update_item_params {bool} -- Whether to update item bias parameters or not. Default is True.
+        update_user_params {bool} -- Whether to update user parameters or not. Default is True.
+        update_item_params {bool} -- Whether to update item  parameters or not. Default is True.
 
     Returns:
         user_features [np.ndarray] -- Updated user_features matrix P
@@ -154,111 +158,56 @@ def _sgd(
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
             user_id, item_id, rating = int(X[i, 0]), int(X[i, 1]), X[i, 2]
-            user_feature = user_features[user_id, :]
-            item_feature = item_features[item_id, :]
-
-            if kernel != "rbf":
-                user_bias = user_biases[user_id]
-                item_bias = item_biases[item_id]
 
             if kernel == "linear":
-                # Compute rating
-                rating_pred = global_mean + item_bias + user_bias
-                for f in range(n_factors):
-                    rating_pred += user_features[user_id, f] * item_features[item_id, f]
-
-                # Computer error
-                error = rating_pred - rating
-
-                # Update bias parameters
-                if update_user_params:
-                    user_biases[user_id] -= lr * (error + reg * user_bias)
-
-                if update_item_params:
-                    item_biases[item_id] -= lr * (error + reg * item_bias)
-
-                # Update user and item features
-                for i in range(n_factors):
-                    user_feature = user_features[user_id, i]
-                    item_feature = item_features[item_id, i]
-
-                    if update_user_params:
-                        user_features[user_id, i] -= lr * (
-                            error * item_feature + reg * user_feature
-                        )
-
-                    if update_item_params:
-                        item_features[item_id, i] -= lr * (
-                            error * user_feature + reg * item_feature
-                        )
+                kernel_linear_sgd_update(
+                    user_id=user_id,
+                    item_id=item_id,
+                    rating=rating,
+                    global_mean=global_mean,
+                    user_biases=user_biases,
+                    item_biases=item_biases,
+                    user_features=user_features,
+                    item_features=item_features,
+                    lr=lr,
+                    reg=reg,
+                    update_user_params=update_user_params,
+                    update_item_params=update_item_params,
+                )
 
             elif kernel == "sigmoid":
-                # Compute predicted rating
-                linear_sum = (
-                    global_mean
-                    + user_bias
-                    + item_bias
-                    + np.dot(user_feature, item_feature)
+                kernel_sigmoid_sgd_update(
+                    user_id=user_id,
+                    item_id=item_id,
+                    rating=rating,
+                    global_mean=global_mean,
+                    user_biases=user_biases,
+                    item_biases=item_biases,
+                    user_features=user_features,
+                    item_features=item_features,
+                    lr=lr,
+                    reg=reg,
+                    a=min_rating,
+                    c=max_rating - min_rating,
+                    update_user_params=update_user_params,
+                    update_item_params=update_item_params,
                 )
-                sigmoid_result = sigmoid(linear_sum)
-                rating_pred = min_rating + (max_rating - min_rating) * sigmoid_result
-
-                # Compute error
-                error = rating_pred - rating
-
-                # Common term shared between all partial derivatives
-                deriv_base = (sigmoid_result ** 2) * math.exp(-linear_sum)
-
-                # Update bias parameters
-                if update_user_params:
-                    opt_deriv = error * deriv_base + reg * user_bias
-                    user_biases[user_id] -= lr * opt_deriv
-
-                if update_item_params:
-                    opt_deriv = error * deriv_base + reg * item_bias
-                    item_biases[item_id] -= lr * opt_deriv
-
-                # Update user and item features
-                for i in range(n_factors):
-                    user_feature = user_features[user_id, i]
-                    item_feature = item_features[item_id, i]
-
-                    if update_user_params:
-                        user_feature_deriv = item_feature * deriv_base
-                        opt_deriv = error * user_feature_deriv + reg * user_feature
-                        user_features[user_id, i] -= lr * opt_deriv
-
-                    if update_item_params:
-                        item_feature_deriv = user_feature * deriv_base
-                        opt_deriv = error * item_feature_deriv + reg * item_feature
-                        item_features[item_id, i] -= lr * opt_deriv
 
             elif kernel == "rbf":
-                # Compute predicted rating
-                power = -gamma * np.sum(np.square(user_feature - item_feature))
-                exp_result = math.exp(power)
-                rating_pred = min_rating + (max_rating - min_rating) * exp_result
-
-                # Compute error
-                error = rating_pred - rating
-
-                # Common term shared between partial derivatives
-                deriv_base = 2 * exp_result * gamma
-
-                # Update user and item features params
-                for i in range(n_factors):
-                    user_feature = user_features[user_id, i]
-                    item_feature = item_features[item_id, i]
-
-                    if update_user_params:
-                        user_feature_deriv = deriv_base * (item_feature - user_feature)
-                        opt_deriv = error * user_feature_deriv + reg * user_feature
-                        user_features[user_id, i] -= lr * opt_deriv
-
-                    if update_item_params:
-                        item_feature_deriv = deriv_base * (user_feature - item_feature)
-                        opt_deriv = error * item_feature_deriv + reg * item_feature
-                        item_features[item_id, i] -= lr * opt_deriv
+                kernel_rbf_sgd_update(
+                    user_id=user_id,
+                    item_id=item_id,
+                    rating=rating,
+                    user_features=user_features,
+                    item_features=item_features,
+                    lr=lr,
+                    reg=reg,
+                    gamma=gamma,
+                    a=min_rating,
+                    c=max_rating - min_rating,
+                    update_user_params=update_user_params,
+                    update_item_params=update_item_params,
+                )
 
         # Calculate error and print
         if verbose == 1:
