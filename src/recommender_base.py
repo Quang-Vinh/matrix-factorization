@@ -1,5 +1,4 @@
 import numpy as np
-from numpy.core.arrayprint import DatetimeFormat
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 
