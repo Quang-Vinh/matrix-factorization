@@ -34,7 +34,8 @@ class BaselineModel(RecommenderBase):
         item_biases {numpy array} -- Item bias vector of shape (n_items, i)
         user_id_map {dict} -- Mapping of user ids to assigned integer ids
         item_id_map {dict} -- Mapping of item ids to assigned integer ids
-        _predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
+        train_rmse {list} -- Training rmse values
+        predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
     """
 
     def __init__(
@@ -76,7 +77,7 @@ class BaselineModel(RecommenderBase):
 
         # Run parameter estimation
         if self.method == "sgd":
-            self.user_biases, self.item_biases = _sgd(
+            self.user_biases, self.item_biases, self.train_rmse = _sgd(
                 X=X.to_numpy(),
                 global_mean=self.global_mean,
                 user_biases=self.user_biases,
@@ -88,7 +89,7 @@ class BaselineModel(RecommenderBase):
             )
 
         elif self.method == "als":
-            self.user_biases, self.item_biases = _als(
+            self.user_biases, self.item_biases, self.train_rmse = _als(
                 X=X.to_numpy(),
                 global_mean=self.global_mean,
                 user_biases=self.user_biases,
@@ -126,7 +127,7 @@ class BaselineModel(RecommenderBase):
             item_biases=self.item_biases,
         )
 
-        self._predictions_possible = predictions_possible
+        self.predictions_possible = predictions_possible
 
         return predictions
 
@@ -162,7 +163,7 @@ class BaselineModel(RecommenderBase):
         self.user_biases = np.append(self.user_biases, np.zeros(len(new_users)))
 
         # Estimate new bias parameter
-        self.user_biases, _ = _sgd(
+        self.user_biases, _, self.train_rmse = _sgd(
             X=X.to_numpy(),
             global_mean=self.global_mean,
             user_biases=self.user_biases,
@@ -221,7 +222,7 @@ def _sgd(
     verbose: int,
     update_user_params: bool = True,
     update_item_params: bool = True,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, list]:
     """
     Performs Stochastic Gradient Descent to estimate the user_biases and item_biases
 
@@ -240,7 +241,10 @@ def _sgd(
     Returns:
         user_biases [np.ndarray] -- Updated user_biases vector
         item_biases [np.ndarray] -- Updated item_bases vector
+        train_rmse -- Training rmse values
     """
+    train_rmse = []
+
     for epoch in range(n_epochs):
 
         # Iterate through all user-item ratings
@@ -258,16 +262,18 @@ def _sgd(
                 item_biases[item_id] += lr * (error - reg * item_biases[item_id])
 
         # Calculate error and print
+        rmse = _calculate_rmse(
+            X=X,
+            global_mean=global_mean,
+            user_biases=user_biases,
+            item_biases=item_biases,
+        )
+        train_rmse.append(rmse)
+
         if verbose == 1:
-            rmse = _calculate_rmse(
-                X=X,
-                global_mean=global_mean,
-                user_biases=user_biases,
-                item_biases=item_biases,
-            )
             print("Epoch ", epoch + 1, "/", n_epochs, " -  train_rmse:", rmse)
 
-    return user_biases, item_biases
+    return user_biases, item_biases, train_rmse
 
 
 @nb.njit()
@@ -279,7 +285,7 @@ def _als(
     n_epochs: int,
     reg: float,
     verbose: int,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, list]:
     """
     Performs Alternating Least Squares to estimate the user_biases and item_biases. For every epoch, the item biases are held constant while
     solving directly for the user biases parameters using a closed form equation. Then the user biases parameters is held constant and the same
@@ -298,9 +304,11 @@ def _als(
     Returns:
         user_biases [np.ndarray] -- Updated user_biases vector
         item_biases [np.ndarray] -- Updated item_bases vector
+        train_rmse -- Training rmse values
     """
     n_users = user_biases.shape[0]
     n_items = item_biases.shape[0]
+    train_rmse = []
 
     # Get counts of all users and items
     user_counts = np.zeros(n_users)
@@ -336,16 +344,18 @@ def _als(
         item_biases = item_biases / (reg + item_counts)
 
         # Calculate error and print
+        rmse = _calculate_rmse(
+            X=X,
+            global_mean=global_mean,
+            user_biases=user_biases,
+            item_biases=item_biases,
+        )
+        train_rmse.append(rmse)
+
         if verbose == 1:
-            rmse = _calculate_rmse(
-                X=X,
-                global_mean=global_mean,
-                user_biases=user_biases,
-                item_biases=item_biases,
-            )
             print("Epoch ", epoch + 1, "/", n_epochs, " -  train_rmse:", rmse)
 
-    return user_biases, item_biases
+    return user_biases, item_biases, train_rmse
 
 
 @nb.njit()

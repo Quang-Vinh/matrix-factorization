@@ -17,7 +17,6 @@ from typing import Tuple, Union
 
 
 # TODO: clean up requirements.txt file
-# TODO: Save training RMSE values
 
 
 class KernelMF(RecommenderBase):
@@ -49,7 +48,8 @@ class KernelMF(RecommenderBase):
         item_features {numpy array} -- Decomposed Q matrix of item features of shape (n_items, n_factors)
         user_id_map {dict} -- Mapping of user ids to assigned integer ids
         item_id_map {dict} -- Mapping of item ids to assigned integer ids
-        _predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
+        train_rmse -- Training rmse values
+        predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
     """
 
     def __init__(
@@ -110,6 +110,7 @@ class KernelMF(RecommenderBase):
             self.item_features,
             self.user_biases,
             self.item_biases,
+            self.train_rmse,
         ) = _sgd(
             X=X.to_numpy(),
             global_mean=self.global_mean,
@@ -159,7 +160,7 @@ class KernelMF(RecommenderBase):
             gamma=self.gamma,
         )
 
-        self._predictions_possible = predictions_possible
+        self.predictions_possible = predictions_possible
         return predictions
 
     def update_users(
@@ -215,6 +216,7 @@ class KernelMF(RecommenderBase):
             self.item_features,
             self.user_biases,
             self.item_biases,
+            self.train_rmse,
         ) = _sgd(
             X=X.to_numpy(),
             global_mean=self.global_mean,
@@ -334,7 +336,7 @@ def _sgd(
     verbose: int,
     update_user_params: bool = True,
     update_item_params: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list]:
     """
     Performs stochastic gradient descent to estimate parameters.
 
@@ -361,7 +363,10 @@ def _sgd(
         item_features [np.ndarray] -- Updated item_features matrix Q
         user_biases [np.ndarray] -- Updated user_biases vector
         item_biases [np.ndarray] -- Updated item_bases vector
+        train_rmse [list] -- Training rmse values
     """
+    train_rmse = []
+
     for epoch in range(n_epochs):
 
         # Iterate through all user-item ratings
@@ -419,22 +424,24 @@ def _sgd(
                 )
 
         # Calculate error and print
+        rmse = _calculate_rmse(
+            X=X,
+            global_mean=global_mean,
+            user_biases=user_biases,
+            item_biases=item_biases,
+            user_features=user_features,
+            item_features=item_features,
+            min_rating=min_rating,
+            max_rating=max_rating,
+            kernel=kernel,
+            gamma=gamma,
+        )
+        train_rmse.append(rmse)
+
         if verbose == 1:
-            rmse = _calculate_rmse(
-                X=X,
-                global_mean=global_mean,
-                user_biases=user_biases,
-                item_biases=item_biases,
-                user_features=user_features,
-                item_features=item_features,
-                min_rating=min_rating,
-                max_rating=max_rating,
-                kernel=kernel,
-                gamma=gamma,
-            )
             print("Epoch ", epoch + 1, "/", n_epochs, " -  train_rmse:", rmse)
 
-    return user_features, item_features, user_biases, item_biases
+    return user_features, item_features, user_biases, item_biases, train_rmse
 
 
 @nb.njit()
