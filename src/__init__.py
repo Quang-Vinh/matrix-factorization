@@ -1,11 +1,11 @@
 from .baseline_model import BaselineModel
-from .matrix_factorization import MatrixFactorization
+from .kernel_matrix_factorization import KernelMF
 from .recommender_base import RecommenderBase
 from .utils import train_update_test_split
 
 __all__ = [
     "BaselineModel",
-    "MatrixFactorization",
+    "KernelMF",
     "RecommenderBase",
     "train_update_test_split",
 ]

@@ -17,12 +17,10 @@ from typing import Tuple, Union
 
 
 # TODO: clean up requirements.txt file
-
 # TODO: Save training RMSE values
-# TODO: change fit signature to match sklearn
 
 
-class MatrixFactorization(RecommenderBase):
+class KernelMF(RecommenderBase):
     """ 
     Kernel Matrix Factorization. Finds the thin matrices P and Q such that P * Q^T give a good low rank approximation to the user-item 
     ratings matrix A based on RMSE. This is different from SVD despite the name as unlike SVD there is no constraint for matrices P and Q to have mutually
@@ -68,9 +66,11 @@ class MatrixFactorization(RecommenderBase):
         max_rating: int = 5,
         verbose: int = 1,
     ):
-        super(MatrixFactorization, self).__init__(
-            min_rating=min_rating, max_rating=max_rating, verbose=verbose
-        )
+        if kernel not in ("linear", "sigmoid", "rbf"):
+            raise ValueError("Kernel must be one of linear, sigmoid, or rbf")
+
+        super().__init__(min_rating=min_rating, max_rating=max_rating, verbose=verbose)
+
         self.n_factors = n_factors
         self.n_epochs = n_epochs
         self.kernel = kernel
@@ -79,18 +79,17 @@ class MatrixFactorization(RecommenderBase):
         self.lr = lr
         self.init_mean = init_mean
         self.init_sd = init_sd
-        self.user_biases, self.item_biases = None, None
-        self.user_features, self.item_features = None, None
         return
 
-    def fit(self, X: pd.DataFrame):
+    def fit(self, X: pd.DataFrame, y: pd.Series):
         """ 
         Decompose user-item rating matrix into thin matrices P and Q along with user and item bias vectors
 
         Arguments:
-            X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
+            X {pandas DataFrame} -- Dataframe containing columns user_id, item_id 
+            y {pandas Series} -- Series containing ratings
         """
-        X = self._preprocess_data(X=X, type="fit")
+        X = self._preprocess_data(X=X, y=y, type="fit")
         self.global_mean = X["rating"].mean()
 
         # Initialize vector bias parameters
@@ -164,7 +163,12 @@ class MatrixFactorization(RecommenderBase):
         return predictions
 
     def update_users(
-        self, X: pd.DataFrame, lr: float = 0.01, n_epochs: int = 20, verbose: int = 0
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        lr: float = 0.01,
+        n_epochs: int = 20,
+        verbose: int = 0,
     ):
         """
         Update P user features matrix with new/updated user-item ratings information using SGD. Only the user parameters corresponding for the
@@ -173,12 +177,13 @@ class MatrixFactorization(RecommenderBase):
         Note: If updating old users then pass all user-item ratings for old users and not just modified ratings
 
         Args:
-            X (pd.DataFrame): Dataframe containing columns user_id, item_id and rating
+            X (pd.DataFrame): Dataframe containing columns user_id, item_id 
+            y (pd.DataFrame): Series containing ratings
             lr (float, optional): Learning rate alpha for gradient optimization step
             n_epochs (int, optional): Number of epochs to run SGD. Defaults to 20.
             verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
         """
-        X, known_users, new_users = self._preprocess_data(X=X, type="update")
+        X, known_users, new_users = self._preprocess_data(X=X, y=y, type="update")
         n_new_users = len(new_users)
 
         # Re-initialize params for old users

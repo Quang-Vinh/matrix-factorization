@@ -1,12 +1,13 @@
 import numpy as np
+from numpy.core.arrayprint import DatetimeFormat
 import pandas as pd
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, RegressorMixin
 
 from abc import ABCMeta, abstractmethod
 from typing import Tuple, Union
 
 
-class RecommenderBase(BaseEstimator, metaclass=ABCMeta):
+class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
     """
     Abstract base class for all recommender models.
     All subclasses should implement the fit() and predict() methods
@@ -30,19 +31,17 @@ class RecommenderBase(BaseEstimator, metaclass=ABCMeta):
         self.min_rating = min_rating
         self.max_rating = max_rating
         self.verbose = verbose
-        self.n_users, self.n_items = None, None
-        self.global_mean = None
-        self.user_id_map, self.item_id_map = None, None
         return
 
     def _preprocess_data(
-        self, X: pd.DataFrame, type: str = "fit"
+        self, X: pd.DataFrame, y: pd.Series = None, type: str = "fit"
     ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, list, list]]:
         """
         Preprocessing steps before doing fit, update or predict
 
         Arguments:
-            X {pd.DataFrame} -- Dataframe containing columns user_id, item_id and rating
+            X {pd.DataFrame} -- Dataframe containing columns user_id, item_id
+            y {pd.Series} -- Series containing rating
             type {str} -- The type of preprocessing to do. Allowed options are ('fit', 'predict', 'update'). Defaults to 'fit'
 
         Returns:
@@ -50,13 +49,10 @@ class RecommenderBase(BaseEstimator, metaclass=ABCMeta):
             known_users [list, 'on update only'] -- List containing already known users in X. Only returned for type update
             new_users [list, 'on update only'] -- List containing new users in X. Only returned for type update
         """
-        # Keep only required columns in given order
-        if type == "predict":
-            cols_keep = ["user_id", "item_id"]
-        else:
-            cols_keep = ["user_id", "item_id", "rating"]
+        X = X.loc[:, ["user_id", "item_id"]]
 
-        X = X.loc[:, cols_keep]
+        if type != "predict":
+            X["rating"] = y
 
         if type in ("fit", "update"):
             # Check for duplicate user-item ratings
@@ -109,12 +105,13 @@ class RecommenderBase(BaseEstimator, metaclass=ABCMeta):
             return X
 
     @abstractmethod
-    def fit(self, X: pd.DataFrame):
+    def fit(self, X: pd.DataFrame, y: pd.Series):
         """
         Fit model to given data
 
         Args:
-            X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
+            X {pandas DataFrame} -- Dataframe containing columns user_id, item_id
+            y {pandas DataFrame} -- Series containing rating
         """
         return self
 

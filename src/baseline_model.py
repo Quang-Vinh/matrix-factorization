@@ -4,6 +4,178 @@ import pandas as pd
 
 from .recommender_base import RecommenderBase
 
+from typing import Tuple
+
+
+class BaselineModel(RecommenderBase):
+    """
+    Simple model which models the user item rating as r_{ui} = \mu + ubias_u + ibias_i which is sum of a global mean and the corresponding
+    user and item biases. The global mean \mu is estimated as the mean of all ratings. The other parameters to be estimated ubias and ibias 
+    are vectors of length n_users and n_items respectively. These two vectors are estimated using stochastic gradient descent on the RMSE 
+    with regularization.
+
+    NOTE: Recommend method with this model will simply recommend the most popular items for every user. This model should mainly be used
+          for estimating the explicit rating for a given user and item 
+
+    Arguments:
+        method: {str} -- Method to estimate parameters. Can be one of 'sgd' or 'als' (default: {'sgd'})
+        n_epochs {int} -- Number of epochs to train for (default: {100})
+        reg {float} -- Lambda parameter for L2 regularization (default: {1})
+        lr {float} -- Learning rate for gradient optimization step (default: {0.01})
+        min_rating {int} -- Smallest rating possible (default: {0})
+        max_rating {int} -- Largest rating possible (default: {5})
+        verbose {str} -- Verbosity when fitting. 0 to not print anything, 1 to print fitting model (default: {1})
+
+    Attributes:
+        n_users {int} -- Number of users
+        n_items {int} -- Number of items
+        global_mean {float} -- Global mean of all ratings
+        user_biases {numpy array} -- User bias vector of shape (n_users, 1)
+        item_biases {numpy array} -- Item bias vector of shape (n_items, i)
+        user_id_map {dict} -- Mapping of user ids to assigned integer ids
+        item_id_map {dict} -- Mapping of item ids to assigned integer ids
+        _predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
+    """
+
+    def __init__(
+        self,
+        method: str = "sgd",
+        n_epochs: int = 100,
+        reg: float = 1,
+        lr: float = 0.01,
+        min_rating: int = 0,
+        max_rating: int = 5,
+        verbose=1,
+    ):
+        # Check inputs
+        if method not in ("sgd", "als"):
+            raise ValueError('Method param must be either "sgd" or "als"')
+
+        super().__init__(min_rating=min_rating, max_rating=max_rating, verbose=verbose)
+
+        self.method = method
+        self.n_epochs = n_epochs
+        self.reg = reg
+        self.lr = lr
+        return
+
+    def fit(self, X: pd.DataFrame, y: pd.Series):
+        """ 
+        Fits simple mean and bias model to given user item ratings
+
+        Arguments:
+            X {pandas DataFrame} -- Dataframe containing columns user_id, item_id
+            y {pandas Series} -- Series containing rating
+        """
+        X = self._preprocess_data(X=X, y=y, type="fit")
+        self.global_mean = X["rating"].mean()
+
+        # Initialize parameters
+        self.user_biases = np.zeros(self.n_users)
+        self.item_biases = np.zeros(self.n_items)
+
+        # Run parameter estimation
+        if self.method == "sgd":
+            self.user_biases, self.item_biases = _sgd(
+                X=X.to_numpy(),
+                global_mean=self.global_mean,
+                user_biases=self.user_biases,
+                item_biases=self.item_biases,
+                n_epochs=self.n_epochs,
+                lr=self.lr,
+                reg=self.reg,
+                verbose=self.verbose,
+            )
+
+        elif self.method == "als":
+            self.user_biases, self.item_biases = _als(
+                X=X.to_numpy(),
+                global_mean=self.global_mean,
+                user_biases=self.user_biases,
+                item_biases=self.item_biases,
+                n_epochs=self.n_epochs,
+                reg=self.reg,
+                verbose=self.verbose,
+            )
+
+        return self
+
+    def predict(self, X: pd.DataFrame) -> list:
+        """
+        Predict ratings for given users and items
+
+        Arguments:
+            X {pd.DataFrame} -- Dataframe containing columns user_id and item_id
+
+        Returns:
+            predictions [list] -- List containing rating predictions of all user, items in same order as input X
+        """
+        # If empty return empty list
+        if X.shape[0] == 0:
+            return []
+
+        X = self._preprocess_data(X=X, type="predict")
+
+        # Get predictions
+        predictions, predictions_possible = _predict(
+            X=X.to_numpy(),
+            global_mean=self.global_mean,
+            min_rating=self.min_rating,
+            max_rating=self.max_rating,
+            user_biases=self.user_biases,
+            item_biases=self.item_biases,
+        )
+
+        self._predictions_possible = predictions_possible
+
+        return predictions
+
+    def update_users(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        lr: float = 0.01,
+        n_epochs: int = 20,
+        verbose: int = 0,
+    ):
+        """
+        Update user biases vector with new/updated user-item ratings information using SGD. Only the user parameters corresponding for the
+        new/updated users will be updated and item parameters will be left alone. 
+        
+        Note: If updating old users then pass all user-item ratings for old users and not just modified ratings
+
+        Args:
+            X (pd.DataFrame): Dataframe containing columns user_id, item_id 
+            y (pd.Series): Series containing rating
+            lr (float, optional): Learning rate alpha for gradient optimization step
+            n_epochs (int, optional): Number of epochs to run SGD. Defaults to 20.
+            verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
+        """
+        X, known_users, new_users = self._preprocess_data(X=X, y=y, type="update")
+
+        # Re-initialize user bias for old users
+        for user in known_users:
+            user_index = self.user_id_map[user]
+            self.user_biases[user_index] = 0
+
+        # Add user bias param for new users
+        self.user_biases = np.append(self.user_biases, np.zeros(len(new_users)))
+
+        # Estimate new bias parameter
+        self.user_biases, _ = _sgd(
+            X=X.to_numpy(),
+            global_mean=self.global_mean,
+            user_biases=self.user_biases,
+            item_biases=self.item_biases,
+            n_epochs=n_epochs,
+            lr=lr,
+            reg=self.reg,
+            verbose=verbose,
+            update_item_params=False,
+        )
+
+        return
+
 
 @nb.njit()
 def _calculate_rmse(
@@ -49,7 +221,7 @@ def _sgd(
     verbose: int,
     update_user_params: bool = True,
     update_item_params: bool = True,
-) -> (np.ndarray, np.ndarray):
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Performs Stochastic Gradient Descent to estimate the user_biases and item_biases
 
@@ -107,7 +279,7 @@ def _als(
     n_epochs: int,
     reg: float,
     verbose: int,
-) -> (np.ndarray, np.ndarray):
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Performs Alternating Least Squares to estimate the user_biases and item_biases. For every epoch, the item biases are held constant while
     solving directly for the user biases parameters using a closed form equation. Then the user biases parameters is held constant and the same
@@ -184,7 +356,7 @@ def _predict(
     max_rating: int,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
-) -> (list, list):
+) -> Tuple[list, list]:
     """
     Calculate predicted ratings for each user-item pair.
 
@@ -227,169 +399,3 @@ def _predict(
         predictions_possible.append(user_known and item_known)
 
     return predictions, predictions_possible
-
-
-class BaselineModel(RecommenderBase):
-    """
-    Simple model which models the user item rating as r_{ui} = \mu + ubias_u + ibias_i which is sum of a global mean and the corresponding
-    user and item biases. The global mean \mu is estimated as the mean of all ratings. The other parameters to be estimated ubias and ibias 
-    are vectors of length n_users and n_items respectively. These two vectors are estimated using stochastic gradient descent on the RMSE 
-    with regularization.
-
-    NOTE: Recommend method with this model will simply recommend the most popular items for every user. This model should mainly be used
-          for estimating the explicit rating for a given user and item 
-
-    Arguments:
-        method: {str} -- Method to estimate parameters. Can be one of 'sgd' or 'als' (default: {'sgd'})
-        n_epochs {int} -- Number of epochs to train for (default: {100})
-        reg {float} -- Lambda parameter for L2 regularization (default: {1})
-        lr {float} -- Learning rate for gradient optimization step (default: {0.01})
-        min_rating {int} -- Smallest rating possible (default: {0})
-        max_rating {int} -- Largest rating possible (default: {5})
-        verbose {str} -- Verbosity when fitting. 0 to not print anything, 1 to print fitting model (default: {1})
-
-    Attributes:
-        n_users {int} -- Number of users
-        n_items {int} -- Number of items
-        global_mean {float} -- Global mean of all ratings
-        user_biases {numpy array} -- User bias vector of shape (n_users, 1)
-        item_biases {numpy array} -- Item bias vector of shape (n_items, i)
-        user_id_map {dict} -- Mapping of user ids to assigned integer ids
-        item_id_map {dict} -- Mapping of item ids to assigned integer ids
-        _predictions_possible {list} -- Boolean vector of whether both user and item were known for prediction. Only available after calling predict
-    """
-
-    def __init__(
-        self,
-        method: str = "sgd",
-        n_epochs: int = 100,
-        reg: float = 1,
-        lr: float = 0.01,
-        min_rating: int = 0,
-        max_rating: int = 5,
-        verbose=1,
-    ):
-        # Check inputs
-        if method not in ("sgd", "als"):
-            raise Exception('Method param must be either "sgd" or "als"')
-
-        super(BaselineModel, self).__init__(
-            min_rating=min_rating, max_rating=max_rating, verbose=verbose
-        )
-
-        self.method = method
-        self.n_epochs = n_epochs
-        self.reg = reg
-        self.lr = lr
-        self.user_biases, self.item_biases = None, None
-        return
-
-    def fit(self, X: pd.DataFrame):
-        """ 
-        Fits simple mean and bias model to given user item ratings
-
-        Arguments:
-            X {pandas DataFrame} -- Dataframe containing columns user_id, item_id and rating
-        """
-        X = self._preprocess_data(X=X, type="fit")
-        self.global_mean = X["rating"].mean()
-
-        # Initialize parameters
-        self.user_biases = np.zeros(self.n_users)
-        self.item_biases = np.zeros(self.n_items)
-
-        # Run parameter estimation
-        if self.method == "sgd":
-            self.user_biases, self.item_biases = _sgd(
-                X=X.to_numpy(),
-                global_mean=self.global_mean,
-                user_biases=self.user_biases,
-                item_biases=self.item_biases,
-                n_epochs=self.n_epochs,
-                lr=self.lr,
-                reg=self.reg,
-                verbose=self.verbose,
-            )
-
-        elif self.method == "als":
-            self.user_biases, self.item_biases = _als(
-                X=X.to_numpy(),
-                global_mean=self.global_mean,
-                user_biases=self.user_biases,
-                item_biases=self.item_biases,
-                n_epochs=self.n_epochs,
-                reg=self.reg,
-                verbose=self.verbose,
-            )
-
-        return self
-
-    def predict(self, X: pd.DataFrame) -> list:
-        """
-        Predict ratings for given users and items
-
-        Arguments:
-            X {pd.DataFrame} -- Dataframe containing columns user_id and item_id
-
-        Returns:
-            predictions [list] -- List containing rating predictions of all user, items in same order as input X
-        """
-        # If empty return empty list
-        if X.shape[0] == 0:
-            return []
-
-        X = self._preprocess_data(X=X, type="predict")
-
-        # Get predictions
-        predictions, predictions_possible = _predict(
-            X=X.to_numpy(),
-            global_mean=self.global_mean,
-            min_rating=self.min_rating,
-            max_rating=self.max_rating,
-            user_biases=self.user_biases,
-            item_biases=self.item_biases,
-        )
-
-        self._predictions_possible = predictions_possible
-
-        return predictions
-
-    def update_users(
-        self, X: pd.DataFrame, lr: float = 0.01, n_epochs: int = 20, verbose: int = 0
-    ):
-        """
-        Update user biases vector with new/updated user-item ratings information using SGD. Only the user parameters corresponding for the
-        new/updated users will be updated and item parameters will be left alone. 
-        
-        Note: If updating old users then pass all user-item ratings for old users and not just modified ratings
-
-        Args:
-            X (pd.DataFrame): Dataframe containing columns user_id, item_id and rating
-            lr (float, optional): Learning rate alpha for gradient optimization step
-            n_epochs (int, optional): Number of epochs to run SGD. Defaults to 20.
-            verbose (int, optional): Verbosity when updating, 0 for nothing and 1 for training messages. Defaults to 0.
-        """
-        X, known_users, new_users = self._preprocess_data(X=X, type="update")
-
-        # Re-initialize user bias for old users
-        for user in known_users:
-            user_index = self.user_id_map[user]
-            self.user_biases[user_index] = 0
-
-        # Add user bias param for new users
-        self.user_biases = np.append(self.user_biases, np.zeros(len(new_users)))
-
-        # Estimate new bias parameter
-        self.user_biases, _ = _sgd(
-            X=X.to_numpy(),
-            global_mean=self.global_mean,
-            user_biases=self.user_biases,
-            item_biases=self.item_biases,
-            n_epochs=n_epochs,
-            lr=lr,
-            reg=self.reg,
-            verbose=verbose,
-            update_item_params=False,
-        )
-
-        return
