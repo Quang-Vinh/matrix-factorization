@@ -16,9 +16,6 @@ from .recommender_base import RecommenderBase
 from typing import Tuple, Union
 
 
-# TODO: clean up requirements.txt file
-
-
 class KernelMF(RecommenderBase):
     """ 
     Kernel Matrix Factorization. Finds the thin matrices P and Q such that P * Q^T give a good low rank approximation to the user-item 
