@@ -18,6 +18,7 @@ pip install matrix_factorization
 ```python
 from matrix_factorization import BaselineModel, KernelMF, train_update_test_split
 
+import pandas as pd
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
@@ -43,7 +44,7 @@ print(f'\nTest RMSE: {rmse:.4f}')
 
 # Get recommendations
 user = 200
-items_known = X_train.query('user_id == @user')['item_id']
+items_known = X_train_initial.query('user_id == @user')['item_id']
 matrix_fact.recommend(user=user, items_known=items_known)
 ```
 
