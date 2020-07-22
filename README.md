@@ -20,7 +20,6 @@ from matrix_factorization import BaselineModel, KernelMF, train_update_test_spli
 
 import pandas as pd
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
 
 # Movie data found here https://grouplens.org/datasets/movielens/
 cols = ['user_id', 'item_id', 'rating', 'timestamp']
