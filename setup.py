@@ -25,5 +25,11 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
     ],
     python_requires=">=3.6",
-    install_requires=["numba", "numpy", "pandas", "scikit-learn", "scipy"],
+    install_requires=[
+        "numba>=0.49.1",
+        "numpy>=1.18.5",
+        "pandas>=1.0.4",
+        "scikit-learn>=0.23.1",
+        "scipy>=1.4.1",
+    ],
 )
