@@ -58,6 +58,8 @@ items_known = X_train_initial.query("user_id == @user")["item_id"]
 matrix_fact.recommend(user=user, items_known=items_known)
 ```
 
+Check examples/recommender-system.ipynb for complete examples
+
 ## License
 This project is licensed under the MIT License
 
