@@ -9,14 +9,14 @@ with open(readme_path) as f:
 
 setuptools.setup(
     name="matrix_factorization",
-    version="1.0",
+    version="1.1",
     author="Quang-Vinh Do",
     author_email="qdo086@uottawa.ca",
     description="Library for matrix factorization for recommender systems using collaborative filtering",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/Quang-Vinh/MatrixFactorization",
-    download_url="https://github.com/Quang-Vinh/MatrixFactorization/archive/v1.0.tar.gz",
+    download_url="https://github.com/Quang-Vinh/MatrixFactorization/archive/v1.1.tar.gz",
     license="MIT",
     packages=setuptools.find_packages(),
     classifiers=[
