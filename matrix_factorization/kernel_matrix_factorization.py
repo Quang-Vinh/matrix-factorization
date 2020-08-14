@@ -365,6 +365,8 @@ def _sgd(
     train_rmse = []
 
     for epoch in range(n_epochs):
+        # Shuffle dataset before each epoch
+        np.random.shuffle(X)
 
         # Iterate through all user-item ratings
         for i in range(X.shape[0]):
