@@ -1,5 +1,5 @@
 # Matrix Factorization
-Short and simple implementation of kernel matrix factorization with online-updating for use in collaborative recommender systems.
+Short and simple implementation of kernel matrix factorization with online-updating for use in collaborative recommender systems built on top of scikit-learn.
 
 ## Prerequisites
 - Python 3
