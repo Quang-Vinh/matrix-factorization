@@ -20,7 +20,7 @@ class KernelMF(RecommenderBase):
     """ 
     Kernel Matrix Factorization. Finds the thin matrices P and Q such that P * Q^T give a good low rank approximation to the user-item 
     ratings matrix A based on RMSE. This is different from SVD despite the name as unlike SVD there is no constraint for matrices P and Q to have mutually
-    orthogonal columns. This algorithm also only uses the observed user item ratings and does not focus on the priors. 
+    orthogonal columns. 
 
     Arguments:
         n_factors {int} -- The number of latent factors in matrices P and Q (default: {100})
