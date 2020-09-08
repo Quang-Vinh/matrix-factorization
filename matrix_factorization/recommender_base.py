@@ -22,7 +22,8 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
         global_mean {float} -- Global mean of all ratings
         user_id_map {dict} -- Mapping of user ids to assigned integer ids
         item_id_map {dict} -- Mapping of item ids to assigned integer ids
-
+        known_users {set} -- Set of known user_ids
+        known_items {set} -- Set of known item_ids
     """
 
     @abstractmethod
@@ -31,6 +32,44 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
         self.max_rating = max_rating
         self.verbose = verbose
         return
+
+    @property
+    def known_users(self):
+        """
+        List of known user_ids
+        """
+        return set(self.user_id_map.keys())
+
+    @property
+    def known_items(self):
+        """
+        List of known item_ids
+        """
+        return set(self.item_id_map.keys())
+
+    def contains_user(self, user_id) -> bool:
+        """
+        Checks if model was trained on data containing given user_id
+
+        Args:
+            user_id (any): User id
+
+        Returns:
+            bool: If user_id is known
+        """
+        return user_id in self.known_users
+
+    def contains_item(self, item_id) -> bool:
+        """
+        Checks if model was trained on data containing given item_id
+
+        Args:
+            item_id (any): Item id
+
+        Returns:
+            bool: If item_id is known
+        """
+        return item_id in self.known_items
 
     def _preprocess_data(
         self, X: pd.DataFrame, y: pd.Series = None, type: str = "fit"
