@@ -101,12 +101,13 @@ class BaselineModel(RecommenderBase):
 
         return self
 
-    def predict(self, X: pd.DataFrame) -> list:
+    def predict(self, X: pd.DataFrame, bound_ratings: bool = True) -> list:
         """
         Predict ratings for given users and items
 
         Arguments:
             X {pd.DataFrame} -- Dataframe containing columns user_id and item_id
+            bound_ratings (bool): Whether to bound ratings in range [min_rating, max_rating] (default: True)
 
         Returns:
             predictions [list] -- List containing rating predictions of all user, items in same order as input X
@@ -125,6 +126,7 @@ class BaselineModel(RecommenderBase):
             max_rating=self.max_rating,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
+            bound_ratings=bound_ratings,
         )
 
         self.predictions_possible = predictions_possible
@@ -368,6 +370,7 @@ def _predict(
     max_rating: int,
     user_biases: np.ndarray,
     item_biases: np.ndarray,
+    bound_ratings: bool,
 ) -> Tuple[list, list]:
     """
     Calculate predicted ratings for each user-item pair.
@@ -379,7 +382,7 @@ def _predict(
         max_rating {int} -- Highest rating possible
         user_biases {np.ndarray} -- User biases vector of length n_users
         item_biases {np.ndarray} -- Item biases vector of length n_items
-        clip {boolean} -- Whether to clip predictions in between range [min_rating, max_rating]
+        bound_ratings {boolean} -- Whether to bound predictions in between range [min_rating, max_rating]
 
     Returns:
         predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
@@ -402,10 +405,11 @@ def _predict(
             rating_pred += item_biases[item_id]
 
         # Bound ratings to min and max rating range
-        if rating_pred > max_rating:
-            rating_pred = max_rating
-        elif rating_pred < min_rating:
-            rating_pred = min_rating
+        if bound_ratings:
+            if rating_pred > max_rating:
+                rating_pred = max_rating
+            elif rating_pred < min_rating:
+                rating_pred = min_rating
 
         predictions.append(rating_pred)
         predictions_possible.append(user_known and item_known)

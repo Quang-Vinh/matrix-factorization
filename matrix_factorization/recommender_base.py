@@ -154,12 +154,13 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
         return self
 
     @abstractmethod
-    def predict(self, X: pd.DataFrame) -> list:
+    def predict(self, X: pd.DataFrame, bound_ratings: bool = True) -> list:
         """
         Predict ratings for given users and items
 
         Args:
             X (pd.DataFrame): Dataframe containing columns user_id and item_id
+            bound_ratings (bool): Whether to bound ratings in range [min_rating, max_rating] (default: True)
 
         Returns:
             list: List containing rating predictions of all user, items in same order as input X
@@ -172,6 +173,7 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
         amount: int = 10,
         items_known: list = None,
         include_user: bool = True,
+        bound_ratings: bool = True,
     ) -> pd.DataFrame:
         """
         Returns a DataFrame of recommendations of items for a given user sorted from highest to lowest.
@@ -180,6 +182,7 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
             user (any): User_id to get recommendations for (not assigned user_id from self.user_id_map)
             items_known (list, optional): List of items already known by user and to not be considered in recommendations. Defaults to None.
             include_user (bool, optional): Whether to include the user_id in the output DataFrame or not. Defaults to True.
+            bound_ratings (bool): Whether to bound ratings in range [min_rating, max_rating] (default: True)
 
         Returns:
             pd.DataFrame: Recommendations DataFrame for user with columns user_id (optional), item_id, rating sorted from highest to lowest rating 
@@ -193,11 +196,19 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
 
         # Get rating predictions for given user and all unknown items
         items_recommend = pd.DataFrame({"user_id": user, "item_id": items})
-        items_recommend["rating_pred"] = self.predict(X=items_recommend)
+        items_recommend["rating_pred"] = self.predict(
+            X=items_recommend, bound_ratings=False
+        )
 
         # Sort and keep top n items
         items_recommend.sort_values(by="rating_pred", ascending=False, inplace=True)
         items_recommend = items_recommend.head(amount)
+
+        # Bound ratings
+        if bound_ratings:
+            items_recommend["rating_pred"] = items_recommend["rating_pred"].clip(
+                lower=self.min_rating, upper=self.max_rating
+            )
 
         if not include_user:
             items_recommend.drop(["user_id"], axis="columns", inplace=True)

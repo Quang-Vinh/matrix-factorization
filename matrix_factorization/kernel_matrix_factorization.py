@@ -127,12 +127,13 @@ class KernelMF(RecommenderBase):
 
         return self
 
-    def predict(self, X: pd.DataFrame) -> list:
+    def predict(self, X: pd.DataFrame, bound_ratings: bool = True) -> list:
         """
         Predict ratings for given users and items
 
         Arguments:
             X {pd.DataFrame} -- Dataframe containing columns user_id and item_id
+            bound_ratings (bool): Whether to bound ratings in range [min_rating, max_rating] (default: True)
 
         Returns:
             predictions [list] -- List containing rating predictions of all user, items in same order as input X
@@ -155,6 +156,7 @@ class KernelMF(RecommenderBase):
             max_rating=self.max_rating,
             kernel=self.kernel,
             gamma=self.gamma,
+            bound_ratings=bound_ratings,
         )
 
         self.predictions_possible = predictions_possible
@@ -455,6 +457,7 @@ def _predict(
     max_rating: int,
     kernel: str,
     gamma: float,
+    bound_ratings: bool,
 ) -> Tuple[list, list]:
     """ 
     Calculate predicted ratings for each user-item pair.
@@ -470,7 +473,7 @@ def _predict(
         max_rating {int} -- Highest rating possible
         kernel {str} -- Kernel function. Options are 'linear', 'sigmoid', and 'rbf'
         gamma {float} -- Kernel coefficient for 'rbf' only
-        bound_ratings {bool} -- Bound predicted ratings based on min_rating and max_rating
+        bound_ratings (bool): Whether to bound ratings in range [min_rating, max_rating] (default: True)
 
     Returns:
         predictions [np.ndarray] -- Vector containing rating predictions of all user, items in same order as input X
@@ -526,10 +529,11 @@ def _predict(
             )
 
         # Bound ratings to min and max rating range
-        if rating_pred > max_rating:
-            rating_pred = max_rating
-        elif rating_pred < min_rating:
-            rating_pred = min_rating
+        if bound_ratings:
+            if rating_pred > max_rating:
+                rating_pred = max_rating
+            elif rating_pred < min_rating:
+                rating_pred = min_rating
 
         predictions.append(rating_pred)
         predictions_possible.append(user_known and item_known)
