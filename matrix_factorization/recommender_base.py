@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 
 from abc import ABCMeta, abstractmethod
-from typing import Tuple, Union
+from typing import Any, Tuple, Union
 
 
 class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
@@ -47,7 +47,7 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
         """
         return set(self.item_id_map.keys())
 
-    def contains_user(self, user_id) -> bool:
+    def contains_user(self, user_id: Any) -> bool:
         """
         Checks if model was trained on data containing given user_id
 
@@ -59,7 +59,7 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
         """
         return user_id in self.known_users
 
-    def contains_item(self, item_id) -> bool:
+    def contains_item(self, item_id: Any) -> bool:
         """
         Checks if model was trained on data containing given item_id
 
@@ -169,7 +169,7 @@ class RecommenderBase(BaseEstimator, RegressorMixin, metaclass=ABCMeta):
 
     def recommend(
         self,
-        user,
+        user: Any,
         amount: int = 10,
         items_known: list = None,
         include_user: bool = True,
