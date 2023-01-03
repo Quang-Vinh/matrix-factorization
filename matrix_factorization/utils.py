@@ -26,7 +26,7 @@ def train_update_test_split(
         X_train_initial [pd.DataFrame]: Training set user_ids and item_ids for initial model fitting
         y_train_initial [pd.Series]: Corresponding ratings for X_train_initial
         X_train_update [pd.DataFrame]: Training set user_ids and item_ids for model updating. Contains users that are not in train_initial
-        y_train_initial [pd.Series]: Corresponding ratings for X_train_update
+        y_train_update [pd.Series]: Corresponding ratings for X_train_update
         X_test_update [pd.DataFrame]: Testing set user_ids and item_ids for model updating. Contains same users as train_update
         y_test_update [pd.Series]: Corresponding ratings for X_test_update
     """
