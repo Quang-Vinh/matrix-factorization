@@ -78,7 +78,7 @@ class BaselineModel(RecommenderBase):
         # Run parameter estimation
         if self.method == "sgd":
             self.user_biases, self.item_biases, self.train_rmse = _sgd(
-                X=X.to_numpy(),
+                X=X.to_numpy(dtype=np.float64),
                 global_mean=self.global_mean,
                 user_biases=self.user_biases,
                 item_biases=self.item_biases,
@@ -90,7 +90,7 @@ class BaselineModel(RecommenderBase):
 
         elif self.method == "als":
             self.user_biases, self.item_biases, self.train_rmse = _als(
-                X=X.to_numpy(),
+                X=X.to_numpy(dtype=np.float64),
                 global_mean=self.global_mean,
                 user_biases=self.user_biases,
                 item_biases=self.item_biases,
@@ -120,7 +120,7 @@ class BaselineModel(RecommenderBase):
 
         # Get predictions
         predictions, predictions_possible = _predict(
-            X=X.to_numpy(),
+            X=X.to_numpy(dtype=np.float64),
             global_mean=self.global_mean,
             min_rating=self.min_rating,
             max_rating=self.max_rating,
@@ -166,7 +166,7 @@ class BaselineModel(RecommenderBase):
 
         # Estimate new bias parameter
         self.user_biases, _, self.train_rmse = _sgd(
-            X=X.to_numpy(),
+            X=X.to_numpy(dtype=np.float64),
             global_mean=self.global_mean,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
