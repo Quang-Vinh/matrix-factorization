@@ -109,7 +109,7 @@ class KernelMF(RecommenderBase):
             self.item_biases,
             self.train_rmse,
         ) = _sgd(
-            X=X.to_numpy(),
+            X=X.to_numpy(dtype=np.float64),
             global_mean=self.global_mean,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
@@ -146,7 +146,7 @@ class KernelMF(RecommenderBase):
 
         # Get predictions
         predictions, predictions_possible = _predict(
-            X=X.to_numpy(),
+            X=X.to_numpy(dtype=np.float64),
             global_mean=self.global_mean,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
@@ -217,7 +217,7 @@ class KernelMF(RecommenderBase):
             self.item_biases,
             self.train_rmse,
         ) = _sgd(
-            X=X.to_numpy(),
+            X=X.to_numpy(dtype=np.float64),
             global_mean=self.global_mean,
             user_biases=self.user_biases,
             item_biases=self.item_biases,
